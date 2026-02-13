@@ -166,8 +166,8 @@ Add to `~/.mcp.json`:
     "Content-Type": "application/json; charset=utf-8",
     "X-Powered-By": "Express"
   },
-  "body": "{\"flag\":\"bug{...}\"}",
-  "bodySize": 48,
+  "body": "{\"id\":1,\"username\":\"admin\",\"role\":\"superuser\"}",
+  "bodySize": 52,
   "truncated": false
 }
 ```
