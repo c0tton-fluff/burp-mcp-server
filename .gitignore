@@ -1,0 +1,7 @@
+# Binaries
+burp-mcp-server
+*.exe
+
+# IDE
+.idea/
+.vscode/
