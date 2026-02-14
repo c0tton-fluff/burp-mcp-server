@@ -16,12 +16,6 @@ type GetProxyHistoryInput struct {
 	Offset int `json:"offset,omitempty" jsonschema:"Offset for pagination (default 0)"`
 	// Regex filter (optional)
 	Regex string `json:"regex,omitempty" jsonschema:"Regex filter for URL/content matching"`
-	// Fields to include for detail mode
-	Include []string `json:"include,omitempty" jsonschema:"Fields to include: requestHeaders requestBody responseHeaders responseBody"`
-	// Body limit in bytes
-	BodyLimit int `json:"bodyLimit,omitempty" jsonschema:"Body byte limit (default 2000)"`
-	// Body offset in bytes
-	BodyOffset int `json:"bodyOffset,omitempty" jsonschema:"Body byte offset"`
 }
 
 // ProxyHistorySummary is a lean proxy history entry.
@@ -32,20 +26,10 @@ type ProxyHistorySummary struct {
 	StatusCode int    `json:"statusCode,omitempty"`
 }
 
-// ProxyHistoryDetail is a detailed proxy history entry with headers/body.
-type ProxyHistoryDetail struct {
-	ID         int               `json:"id"`
-	Method     string            `json:"method,omitempty"`
-	URL        string            `json:"url,omitempty"`
-	StatusCode int               `json:"statusCode,omitempty"`
-	Request    map[string]string `json:"requestHeaders,omitempty"`
-	Response   map[string]string `json:"responseHeaders,omitempty"`
-}
-
 // GetProxyHistoryOutput is the output of burp_get_proxy_history.
 type GetProxyHistoryOutput struct {
-	Entries []any `json:"entries"`
-	Count   int   `json:"count"`
+	Entries []ProxyHistorySummary `json:"entries"`
+	Count   int                   `json:"count"`
 }
 
 func getProxyHistoryHandler(session *mcp.ClientSession) func(context.Context, *mcp.CallToolRequest, GetProxyHistoryInput) (*mcp.CallToolResult, GetProxyHistoryOutput, error) {
@@ -56,11 +40,6 @@ func getProxyHistoryHandler(session *mcp.ClientSession) func(context.Context, *m
 		}
 		if count > 50 {
 			count = 50
-		}
-
-		bodyLimit := input.BodyLimit
-		if bodyLimit == 0 {
-			bodyLimit = 2000
 		}
 
 		// Choose which Burp tool to call based on regex presence
@@ -82,71 +61,29 @@ func getProxyHistoryHandler(session *mcp.ClientSession) func(context.Context, *m
 			return nil, GetProxyHistoryOutput{}, fmt.Errorf("failed to get proxy history: %w", err)
 		}
 
-		// Determine if we need detail mode
-		isDetail := len(input.Include) > 0
-
-		if isDetail {
-			return buildDetailedHistory(raw, input.Include, input.BodyOffset, bodyLimit)
+		entries := burp.ParseProxyHistory(raw)
+		output := GetProxyHistoryOutput{
+			Count: len(entries),
 		}
-
-		return buildSummaryHistory(raw)
-	}
-}
-
-func buildSummaryHistory(raw string) (*mcp.CallToolResult, GetProxyHistoryOutput, error) {
-	entries := burp.ParseProxyHistory(raw)
-	output := GetProxyHistoryOutput{
-		Count: len(entries),
-	}
-	for _, e := range entries {
-		output.Entries = append(output.Entries, ProxyHistorySummary{
-			ID:         e.ID,
-			Method:     e.Method,
-			URL:        e.URL,
-			StatusCode: e.StatusCode,
-		})
-	}
-	if output.Entries == nil {
-		output.Entries = []any{}
-	}
-	return nil, output, nil
-}
-
-func buildDetailedHistory(raw string, include []string, bodyOffset, bodyLimit int) (*mcp.CallToolResult, GetProxyHistoryOutput, error) {
-	// For detailed mode, we pass the raw text through with body limits
-	// The parser extracts what it can from Burp's format
-	entries := burp.ParseProxyHistory(raw)
-	output := GetProxyHistoryOutput{
-		Count: len(entries),
-	}
-
-	includeSet := make(map[string]bool)
-	for _, f := range include {
-		includeSet[f] = true
-	}
-
-	for _, e := range entries {
-		detail := ProxyHistoryDetail{
-			ID:         e.ID,
-			Method:     e.Method,
-			URL:        e.URL,
-			StatusCode: e.StatusCode,
+		for _, e := range entries {
+			output.Entries = append(output.Entries, ProxyHistorySummary{
+				ID:         e.ID,
+				Method:     e.Method,
+				URL:        e.URL,
+				StatusCode: e.StatusCode,
+			})
 		}
-		// Note: full header/body detail depends on Burp returning that data.
-		// The proxy history list endpoint typically returns summaries.
-		// For full request/response data, use burp_send_request or get individual entries.
-		output.Entries = append(output.Entries, detail)
+		if output.Entries == nil {
+			output.Entries = []ProxyHistorySummary{}
+		}
+		return nil, output, nil
 	}
-	if output.Entries == nil {
-		output.Entries = []any{}
-	}
-	return nil, output, nil
 }
 
 // RegisterGetProxyHistoryTool registers the burp_get_proxy_history tool.
 func RegisterGetProxyHistoryTool(server *mcp.Server, session *mcp.ClientSession) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "burp_get_proxy_history",
-		Description: `Get proxy HTTP history. Optional regex filter. Returns lean summaries: {id, method, url, statusCode}. Use include=[requestHeaders,requestBody,responseHeaders,responseBody] for detail mode.`,
+		Description: `Get proxy HTTP history. Optional regex filter. Returns lean summaries: {id, method, url, statusCode}.`,
 	}, getProxyHistoryHandler(session))
 }

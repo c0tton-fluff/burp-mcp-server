@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/c0tton-fluff/burp-mcp-server/internal/burp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -49,15 +48,7 @@ func sendToIntruderHandler(session *mcp.ClientSession) func(context.Context, *mc
 		}
 
 		// Normalize line endings
-		rawNorm := strings.ReplaceAll(input.Raw, "\r\n", "\n")
-		rawNorm = strings.ReplaceAll(rawNorm, "\n", "\r\n")
-		if !strings.HasSuffix(rawNorm, "\r\n\r\n") {
-			if strings.HasSuffix(rawNorm, "\r\n") {
-				rawNorm += "\r\n"
-			} else {
-				rawNorm += "\r\n\r\n"
-			}
-		}
+		rawNorm := normalizeRawRequest(input.Raw)
 
 		args := map[string]any{
 			"content":        rawNorm,

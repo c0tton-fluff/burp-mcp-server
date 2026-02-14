@@ -14,6 +14,8 @@ type GetScannerIssuesInput struct {
 	Count int `json:"count,omitempty" jsonschema:"Number of issues to return (default 10)"`
 	// Offset for pagination
 	Offset int `json:"offset,omitempty" jsonschema:"Offset for pagination (default 0)"`
+	// Max characters per issue detail field (default 500, -1 = unlimited)
+	DetailLimit int `json:"detailLimit,omitempty" jsonschema:"Max characters per issue detail (default 500, -1 = unlimited)"`
 }
 
 // GetScannerIssuesOutput is the output of burp_get_scanner_issues.
@@ -42,7 +44,16 @@ func getScannerIssuesHandler(session *mcp.ClientSession) func(context.Context, *
 			return nil, GetScannerIssuesOutput{}, fmt.Errorf("failed to get scanner issues: %w", err)
 		}
 
-		issues := burp.ParseScannerIssues(raw)
+		// DetailLimit: default 500, -1 = unlimited (0 treated as default since it's the zero value)
+		detailLimit := input.DetailLimit
+		if detailLimit == 0 {
+			detailLimit = 500
+		}
+		if detailLimit < 0 {
+			detailLimit = 0
+		}
+
+		issues := burp.ParseScannerIssues(raw, detailLimit)
 		output := GetScannerIssuesOutput{
 			Issues: issues,
 			Count:  len(issues),

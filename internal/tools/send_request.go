@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -56,13 +57,12 @@ func sendRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.C
 			return nil, SendRequestOutput{}, fmt.Errorf("host is required (provide in input or Host header)")
 		}
 
-		// Parse host:port
-		if strings.Contains(host, ":") {
-			parts := strings.SplitN(host, ":", 2)
-			host = parts[0]
+		// Parse host:port (supports IPv6 like [::1]:8080)
+		if h, p, err := net.SplitHostPort(host); err == nil {
+			host = h
 			if input.Port == 0 {
-				if p, err := strconv.Atoi(parts[1]); err == nil {
-					input.Port = p
+				if pn, err := strconv.Atoi(p); err == nil {
+					input.Port = pn
 				}
 			}
 		}
@@ -90,15 +90,7 @@ func sendRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.C
 		}
 
 		// Normalize raw request line endings for Burp
-		rawNorm := strings.ReplaceAll(input.Raw, "\r\n", "\n")
-		rawNorm = strings.ReplaceAll(rawNorm, "\n", "\r\n")
-		if !strings.HasSuffix(rawNorm, "\r\n\r\n") {
-			if strings.HasSuffix(rawNorm, "\r\n") {
-				rawNorm += "\r\n"
-			} else {
-				rawNorm += "\r\n\r\n"
-			}
-		}
+		rawNorm := normalizeRawRequest(input.Raw)
 
 		// Try HTTP/2 first, then fall back to HTTP/1.1
 		responseText, err := tryHTTP2(ctx, session, parsed, host, port, useTLS)

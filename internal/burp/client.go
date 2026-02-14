@@ -22,7 +22,7 @@ type Client struct {
 func NewClient(endpoint string) (*Client, error) {
 	impl := &mcp.Implementation{
 		Name:    "burp-mcp-client",
-		Version: "0.1.0",
+		Version: "1.0.0",
 	}
 	client := mcp.NewClient(impl, nil)
 

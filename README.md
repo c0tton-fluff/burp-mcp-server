@@ -1,6 +1,6 @@
 # burp-mcp-server
 
-[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/c0tton-fluff/burp-mcp-server)](https://github.com/c0tton-fluff/burp-mcp-server/releases)
 
@@ -121,15 +121,13 @@ Add to `~/.mcp.json`:
 | `count` | int | Number of entries (default 10) |
 | `offset` | int | Pagination offset |
 | `regex` | string | Regex filter for URL/content |
-| `include` | string[] | `requestHeaders`, `requestBody`, `responseHeaders`, `responseBody` |
-| `bodyLimit` | int | Body byte limit (default 2000) |
-| `bodyOffset` | int | Body byte offset |
 
 ### burp_get_scanner_issues
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `count` | int | Number of issues (default 10) |
 | `offset` | int | Pagination offset |
+| `detailLimit` | int | Max chars per issue detail (default 500, -1 = unlimited) |
 
 ### burp_create_repeater_tab
 | Parameter | Type | Description |

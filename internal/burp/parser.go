@@ -401,7 +401,8 @@ type ScannerIssue struct {
 }
 
 // ParseScannerIssues parses Burp's scanner output into structured findings.
-func ParseScannerIssues(raw string) []ScannerIssue {
+// detailLimit controls the max length of each issue's detail field (0 = unlimited).
+func ParseScannerIssues(raw string, detailLimit int) []ScannerIssue {
 	if raw == "" {
 		return nil
 	}
@@ -436,9 +437,8 @@ func ParseScannerIssues(raw string) []ScannerIssue {
 				issue.URL = extractValue(line)
 			} else if strings.HasPrefix(lower, "detail:") || strings.HasPrefix(lower, "issue detail:") {
 				detail := extractValue(line)
-				// Truncate long details
-				if len(detail) > 500 {
-					detail = detail[:500] + "..."
+				if detailLimit > 0 && len(detail) > detailLimit {
+					detail = detail[:detailLimit] + "..."
 				}
 				issue.IssueDetail = detail
 			}
