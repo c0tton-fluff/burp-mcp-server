@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/c0tton-fluff/burp-mcp-server/internal/burp"
 	"github.com/c0tton-fluff/burp-mcp-server/internal/tools"
@@ -39,6 +40,23 @@ func runServe(cmd *cobra.Command, args []string) error {
 	go func() {
 		<-sigCh
 		cancel()
+	}()
+
+	// Parent watchdog: detect when Claude Code exits.
+	// When the parent dies, this process gets reparented to PID 1 (launchd).
+	// The SSE connection keeps goroutines alive indefinitely, orphaning
+	// this process. Poll parent PID to detect reparenting and self-terminate.
+	parentPID := os.Getppid()
+	go func() {
+		for {
+			time.Sleep(2 * time.Second)
+			if os.Getppid() != parentPID {
+				fmt.Fprintf(os.Stderr, "parent exited (was %d, now %d) - shutting down\n", parentPID, os.Getppid())
+				cancel()
+				time.AfterFunc(2*time.Second, func() { os.Exit(0) })
+				return
+			}
+		}
 	}()
 
 	// Connect to Burp's MCP extension via SSE
