@@ -105,14 +105,16 @@ func sendRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.C
 		// Unwrap Burp's HttpRequestResponse{...} wrapper, extract just the HTTP response
 		responseText = burp.UnwrapResponse(responseText)
 
-		// Check for 502 from HTTP/2 attempt — fall back to HTTP/1.1
-		if strings.HasPrefix(responseText, "HTTP/") {
+		// Fall back to HTTP/1.1 if HTTP/2 response is empty or 502
+		needsFallback := strings.TrimSpace(responseText) == ""
+		if !needsFallback && strings.HasPrefix(responseText, "HTTP/") {
 			parts := strings.SplitN(responseText, " ", 3)
-			if len(parts) >= 2 && parts[1] == "502" {
-				fallbackText, fallbackErr := tryHTTP1(ctx, session, rawNorm, host, port, useTLS)
-				if fallbackErr == nil {
-					responseText = burp.UnwrapResponse(fallbackText)
-				}
+			needsFallback = len(parts) >= 2 && parts[1] == "502"
+		}
+		if needsFallback {
+			fallbackText, fallbackErr := tryHTTP1(ctx, session, rawNorm, host, port, useTLS)
+			if fallbackErr == nil {
+				responseText = burp.UnwrapResponse(fallbackText)
 			}
 		}
 

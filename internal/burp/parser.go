@@ -23,10 +23,16 @@ func UnwrapResponse(raw string) string {
 	// Step 2: Extract httpResponse= section
 	const respMarker = ", httpResponse="
 	if idx := strings.Index(raw, respMarker); idx >= 0 {
-		return raw[idx+len(respMarker):]
+		extracted := raw[idx+len(respMarker):]
+		// If the response field was empty inside the wrapper, return empty
+		// so the caller can trigger HTTP/1.1 fallback
+		if strings.TrimSpace(extracted) == "" || extracted == "}" {
+			return ""
+		}
+		return extracted
 	}
 
-	// Not wrapped — return as-is (might be a raw HTTP response already)
+	// Not wrapped - return as-is (might be a raw HTTP response already)
 	return raw
 }
 
