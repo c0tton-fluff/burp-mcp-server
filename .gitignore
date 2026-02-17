@@ -8,3 +8,6 @@ burp-mcp-server
 
 # Claude Code
 .claude/
+
+# Burp extensions
+extensions/
