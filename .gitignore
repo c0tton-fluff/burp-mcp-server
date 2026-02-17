@@ -5,3 +5,6 @@ burp-mcp-server
 # IDE
 .idea/
 .vscode/
+
+# Claude Code
+.claude/
