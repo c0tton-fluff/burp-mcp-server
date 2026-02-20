@@ -90,6 +90,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	tools.RegisterSendToIntruderTool(server, session)
 	tools.RegisterEncodeTool(server, session)
 	tools.RegisterDecodeTool(server, session)
+	tools.RegisterRaceRequestTool(server, session)
 
 	// Run the server with stdio transport
 	fmt.Fprintf(os.Stderr, "Burp MCP server ready (stdio)\n")

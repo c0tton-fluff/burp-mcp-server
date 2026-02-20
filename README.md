@@ -4,11 +4,11 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/c0tton-fluff/burp-mcp-server)](https://github.com/c0tton-fluff/burp-mcp-server/releases)
 
-MCP server for [Burp Suite Professional](https://portswigger.net/burp) integration. Enables AI assistants like Claude Code to send requests, read proxy history, access scanner findings, and stage requests in Repeater/Intruder — with clean structured responses, body limits, and auto HTTP/2 detection.
+MCP server for [Burp Suite Professional](https://portswigger.net/burp) integration. Enables AI assistants like Claude Code to send requests, read proxy history, access scanner findings, stage requests in Repeater/Intruder, and run race condition attacks -- with clean structured responses, body limits, and auto HTTP/2 detection.
 
 ## Why
 
-Burp's native MCP extension returns verbose `HttpRequestResponse{...}` blobs with no body limits, separate HTTP/1.1 and HTTP/2 tools, and 14+ tools that waste context. This binary replaces all of that with 7 clean tools, 2KB body limits, auto HTTP version detection, and structured JSON output.
+Burp's native MCP extension returns verbose `HttpRequestResponse{...}` blobs with no body limits, separate HTTP/1.1 and HTTP/2 tools, and 14+ tools that waste context. This binary replaces all of that with 8 clean tools, 2KB body limits, auto HTTP version detection, and structured JSON output.
 
 ## Features
 
@@ -17,7 +17,8 @@ Burp's native MCP extension returns verbose `HttpRequestResponse{...}` blobs wit
 - **Clean output** — `{statusCode, headers, body, bodySize, truncated}` instead of Java toString blobs
 - **Proxy history** — Lean summaries with optional regex filter
 - **Scanner findings** — Structured `{name, severity, confidence, url, issueDetail}`
-- **Repeater/Intruder** — Stage requests for manual follow-up
+- **Repeater/Intruder** -- Stage requests for manual follow-up
+- **Race condition attack** -- Last-byte sync across parallel connections (like Turbo Intruder, no Burp UI needed)
 
 ## Architecture
 
@@ -85,6 +86,7 @@ Add to `~/.mcp.json`:
 | Tool | Description |
 |------|-------------|
 | `burp_send_request` | Send HTTP request with auto HTTP/2 detection and body limit |
+| `burp_race_request` | Single-packet race condition attack (last-byte sync, N parallel connections) |
 | `burp_get_proxy_history` | List proxy history with optional regex filter |
 | `burp_get_scanner_issues` | Get structured scanner findings |
 
@@ -114,6 +116,16 @@ Add to `~/.mcp.json`:
 | `tls` | bool | Use HTTPS (default: true) |
 | `bodyLimit` | int | Response body byte limit (default 2000) |
 | `bodyOffset` | int | Response body byte offset |
+
+### burp_race_request
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `raw` | string | Raw HTTP request including headers and body |
+| `host` | string | Target host (overrides Host header) |
+| `port` | int | Target port (default based on TLS) |
+| `tls` | bool | Use HTTPS (default: true) |
+| `count` | int | Number of concurrent requests (default 10, max 50) |
+| `bodyLimit` | int | Response body byte limit per response (default 500) |
 
 ### burp_get_proxy_history
 | Parameter | Type | Description |
@@ -167,6 +179,43 @@ Add to `~/.mcp.json`:
   "body": "{\"id\":1,\"username\":\"admin\",\"role\":\"superuser\"}",
   "bodySize": 52,
   "truncated": false
+}
+```
+
+## Race Condition Attack
+
+`burp_race_request` implements the [single-packet attack](https://portswigger.net/research/smashing-the-state-machine) technique from James Kettle's research. It bypasses Burp's proxy entirely for timing precision.
+
+**How it works:**
+
+1. Opens N parallel TLS/TCP connections to the target
+2. Sends all-but-last-byte of the HTTP request on each connection
+3. Sends the final byte on all connections simultaneously (last-byte sync)
+4. Reads and parses all responses in parallel
+
+This is the same technique Turbo Intruder uses -- but callable directly from Claude Code with no Burp UI interaction.
+
+**Features:**
+- Auto-calculates `Content-Length` from actual body (no manual byte counting)
+- Forces HTTP/1.1 via TLS ALPN (avoids HTTP/2 upgrade issues)
+- Returns structured results with per-response body limits
+
+**Example usage with Claude Code:**
+
+```
+"Race the convert-currency endpoint with 20 concurrent requests"
+```
+
+**Example response:**
+
+```json
+{
+  "results": [
+    {"index": 0, "statusCode": 200, "body": "{\"message\":\"Currency converted successfully\",\"flag\":\"bug{...}\"}"},
+    {"index": 1, "statusCode": 200, "body": "{\"message\":\"Currency converted successfully\",\"flag\":\"bug{...}\"}"},
+    ...
+  ],
+  "summary": "20 requests sent, responses: 20x 200"
 }
 ```
 
