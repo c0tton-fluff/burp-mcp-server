@@ -84,7 +84,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Register tools
 	tools.RegisterSendRequestTool(server, session)
+	tools.RegisterBatchSendTool(server, session)
 	tools.RegisterGetProxyHistoryTool(server, session)
+	tools.RegisterGetRequestTool(server, session)
 	tools.RegisterGetScannerIssuesTool(server, session)
 	tools.RegisterCreateRepeaterTabTool(server, session)
 	tools.RegisterSendToIntruderTool(server, session)

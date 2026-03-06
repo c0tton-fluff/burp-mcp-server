@@ -74,6 +74,49 @@ type ParsedHTTPResponse struct {
 	Truncated  bool              `json:"truncated,omitempty"`
 }
 
+// SecurityHeaders are headers relevant to pentesting. Used by FilterHeaders.
+var SecurityHeaders = map[string]bool{
+	"content-type":              true,
+	"set-cookie":                true,
+	"location":                  true,
+	"www-authenticate":          true,
+	"authorization":             true,
+	"x-frame-options":           true,
+	"x-content-type-options":    true,
+	"x-xss-protection":          true,
+	"content-security-policy":   true,
+	"strict-transport-security": true,
+	"access-control-allow-origin":      true,
+	"access-control-allow-credentials": true,
+	"access-control-allow-methods":     true,
+	"access-control-allow-headers":     true,
+	"access-control-expose-headers":    true,
+	"x-request-id":             true,
+	"x-correlation-id":         true,
+	"server":                   true,
+	"x-powered-by":             true,
+	"x-aspnet-version":         true,
+	"x-runtime":                true,
+	"x-ratelimit-limit":        true,
+	"x-ratelimit-remaining":    true,
+	"retry-after":              true,
+	"x-redirect-by":            true,
+	"content-disposition":      true,
+	"cache-control":            true,
+	"transfer-encoding":        true,
+}
+
+// FilterHeaders returns only security-relevant headers.
+func FilterHeaders(headers map[string]string) map[string]string {
+	filtered := make(map[string]string)
+	for k, v := range headers {
+		if SecurityHeaders[strings.ToLower(k)] {
+			filtered[k] = v
+		}
+	}
+	return filtered
+}
+
 // ParseHTTPResponse parses a raw HTTP response string into structured parts.
 // Applies bodyOffset and bodyLimit to the body content.
 func ParseHTTPResponse(raw string, bodyOffset, bodyLimit int) *ParsedHTTPResponse {

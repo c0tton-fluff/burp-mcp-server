@@ -37,6 +37,8 @@ type RaceRequestInput struct {
 	Count int `json:"count,omitempty" jsonschema:"Number of concurrent requests (default 10, max 50)"`
 	// Body limit in bytes per response (default 500)
 	BodyLimit int `json:"bodyLimit,omitempty" jsonschema:"Response body byte limit per response (default 500)"`
+	// Return all individual responses (default: deduplicated groups)
+	Raw_ bool `json:"showAll,omitempty" jsonschema:"Return all individual responses instead of deduped groups"`
 }
 
 // RaceResponseEntry holds a single response from the race attack.
@@ -46,9 +48,18 @@ type RaceResponseEntry struct {
 	Body       string `json:"body,omitempty"`
 }
 
+// RaceGroupEntry holds a deduplicated group of identical responses.
+type RaceGroupEntry struct {
+	StatusCode int    `json:"statusCode"`
+	Body       string `json:"body,omitempty"`
+	Count      int    `json:"count"`
+	Indices    []int  `json:"indices"`
+}
+
 // RaceRequestOutput is the output from burp_race_request.
 type RaceRequestOutput struct {
-	Results []RaceResponseEntry `json:"results"`
+	Groups  []RaceGroupEntry    `json:"groups,omitempty"`
+	Results []RaceResponseEntry `json:"results,omitempty"`
 	Summary string              `json:"summary"`
 }
 
@@ -126,15 +137,20 @@ func raceRequestHandler(_ *mcp.ClientSession) func(context.Context, *mcp.CallToo
 		for _, r := range results {
 			statusCounts[r.StatusCode]++
 		}
-		var parts []string
+		var summaryParts []string
 		for code, cnt := range statusCounts {
-			parts = append(parts, fmt.Sprintf("%dx %d", cnt, code))
+			summaryParts = append(summaryParts, fmt.Sprintf("%dx %d", cnt, code))
 		}
-		summary := fmt.Sprintf("%d requests sent, responses: %s", count, strings.Join(parts, ", "))
+		summary := fmt.Sprintf("%d requests sent, responses: %s", count, strings.Join(summaryParts, ", "))
 
-		output := RaceRequestOutput{
-			Results: results,
-			Summary: summary,
+		output := RaceRequestOutput{Summary: summary}
+
+		if input.Raw_ {
+			// Raw mode: return all individual responses
+			output.Results = results
+		} else {
+			// Default: deduplicate into groups
+			output.Groups = dedupeRaceResults(results)
 		}
 
 		return nil, output, nil
@@ -455,13 +471,45 @@ func fixContentLength(raw string) string {
 	return strings.Join(rebuilt, "\r\n") + sep + body
 }
 
+// dedupeRaceResults groups identical responses by (statusCode, body).
+func dedupeRaceResults(results []RaceResponseEntry) []RaceGroupEntry {
+	type key struct {
+		statusCode int
+		body       string
+	}
+	order := []key{}
+	groups := make(map[key]*RaceGroupEntry)
+
+	for _, r := range results {
+		k := key{statusCode: r.StatusCode, body: r.Body}
+		if g, ok := groups[k]; ok {
+			g.Count++
+			g.Indices = append(g.Indices, r.Index)
+		} else {
+			order = append(order, k)
+			groups[k] = &RaceGroupEntry{
+				StatusCode: r.StatusCode,
+				Body:       r.Body,
+				Count:      1,
+				Indices:    []int{r.Index},
+			}
+		}
+	}
+
+	out := make([]RaceGroupEntry, 0, len(order))
+	for _, k := range order {
+		out = append(out, *groups[k])
+	}
+	return out
+}
+
 // RegisterRaceRequestTool registers the burp_race_request tool.
 func RegisterRaceRequestTool(server *mcp.Server, session *mcp.ClientSession) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "burp_race_request",
-		Description: `Single-packet race condition attack. Sends N identical HTTP requests in one TCP segment for TOCTOU exploitation. ` +
-			`Bypasses Burp proxy for timing precision. Returns {results: [{index, statusCode, body}], summary}. ` +
-			`Default: 10 requests, 500B body limit per response.`,
+		Description: `Single-packet race condition attack. Sends N identical requests simultaneously. ` +
+			`Returns deduplicated {groups: [{statusCode, body, count, indices}], summary}. ` +
+			`Default: 10 requests, 500B body limit. Use showAll=true for individual responses.`,
 	}, raceRequestHandler(session))
 }
 

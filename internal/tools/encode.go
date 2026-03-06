@@ -2,18 +2,17 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"net/url"
 
-	"github.com/c0tton-fluff/burp-mcp-server/internal/burp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // EncodeInput is the input for burp_encode.
 type EncodeInput struct {
-	// Content to encode
 	Content string `json:"content" jsonschema:"required,Content to encode"`
-	// Encoding type: url or base64
-	Type string `json:"type" jsonschema:"required,Encoding type: url or base64"`
+	Type    string `json:"type" jsonschema:"required,Encoding type: url or base64"`
 }
 
 // EncodeOutput is the output of burp_encode.
@@ -21,39 +20,30 @@ type EncodeOutput struct {
 	Encoded string `json:"encoded"`
 }
 
-func encodeHandler(session *mcp.ClientSession) func(context.Context, *mcp.CallToolRequest, EncodeInput) (*mcp.CallToolResult, EncodeOutput, error) {
-	return func(ctx context.Context, req *mcp.CallToolRequest, input EncodeInput) (*mcp.CallToolResult, EncodeOutput, error) {
+func encodeHandler(_ *mcp.ClientSession) func(context.Context, *mcp.CallToolRequest, EncodeInput) (*mcp.CallToolResult, EncodeOutput, error) {
+	return func(_ context.Context, _ *mcp.CallToolRequest, input EncodeInput) (*mcp.CallToolResult, EncodeOutput, error) {
 		if input.Content == "" {
 			return nil, EncodeOutput{}, fmt.Errorf("content is required")
 		}
 
-		var toolName string
+		var encoded string
 		switch input.Type {
 		case "url":
-			toolName = "url_encode"
+			encoded = url.QueryEscape(input.Content)
 		case "base64":
-			toolName = "base64_encode"
+			encoded = base64.StdEncoding.EncodeToString([]byte(input.Content))
 		default:
 			return nil, EncodeOutput{}, fmt.Errorf("type must be 'url' or 'base64'")
 		}
 
-		result, err := burp.CallTool(ctx, session, toolName, map[string]any{
-			"content": input.Content,
-		})
-		if err != nil {
-			return nil, EncodeOutput{}, fmt.Errorf("encode failed: %w", err)
-		}
-
-		return nil, EncodeOutput{Encoded: result}, nil
+		return nil, EncodeOutput{Encoded: encoded}, nil
 	}
 }
 
 // DecodeInput is the input for burp_decode.
 type DecodeInput struct {
-	// Content to decode
 	Content string `json:"content" jsonschema:"required,Content to decode"`
-	// Decoding type: url or base64
-	Type string `json:"type" jsonschema:"required,Decoding type: url or base64"`
+	Type    string `json:"type" jsonschema:"required,Decoding type: url or base64"`
 }
 
 // DecodeOutput is the output of burp_decode.
@@ -61,30 +51,35 @@ type DecodeOutput struct {
 	Decoded string `json:"decoded"`
 }
 
-func decodeHandler(session *mcp.ClientSession) func(context.Context, *mcp.CallToolRequest, DecodeInput) (*mcp.CallToolResult, DecodeOutput, error) {
-	return func(ctx context.Context, req *mcp.CallToolRequest, input DecodeInput) (*mcp.CallToolResult, DecodeOutput, error) {
+func decodeHandler(_ *mcp.ClientSession) func(context.Context, *mcp.CallToolRequest, DecodeInput) (*mcp.CallToolResult, DecodeOutput, error) {
+	return func(_ context.Context, _ *mcp.CallToolRequest, input DecodeInput) (*mcp.CallToolResult, DecodeOutput, error) {
 		if input.Content == "" {
 			return nil, DecodeOutput{}, fmt.Errorf("content is required")
 		}
 
-		var toolName string
+		var decoded string
+		var err error
 		switch input.Type {
 		case "url":
-			toolName = "url_decode"
+			decoded, err = url.QueryUnescape(input.Content)
+			if err != nil {
+				return nil, DecodeOutput{}, fmt.Errorf("url decode: %w", err)
+			}
 		case "base64":
-			toolName = "base64_decode"
+			b, err := base64.StdEncoding.DecodeString(input.Content)
+			if err != nil {
+				// Try URL-safe base64 as fallback
+				b, err = base64.URLEncoding.DecodeString(input.Content)
+				if err != nil {
+					return nil, DecodeOutput{}, fmt.Errorf("base64 decode: %w", err)
+				}
+			}
+			decoded = string(b)
 		default:
 			return nil, DecodeOutput{}, fmt.Errorf("type must be 'url' or 'base64'")
 		}
 
-		result, err := burp.CallTool(ctx, session, toolName, map[string]any{
-			"content": input.Content,
-		})
-		if err != nil {
-			return nil, DecodeOutput{}, fmt.Errorf("decode failed: %w", err)
-		}
-
-		return nil, DecodeOutput{Decoded: result}, nil
+		return nil, DecodeOutput{Decoded: decoded}, nil
 	}
 }
 
@@ -92,7 +87,7 @@ func decodeHandler(session *mcp.ClientSession) func(context.Context, *mcp.CallTo
 func RegisterEncodeTool(server *mcp.Server, session *mcp.ClientSession) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "burp_encode",
-		Description: `Encode content. Params: content, type (url|base64). Returns {encoded}.`,
+		Description: `Encode content locally. Params: content, type (url|base64). Returns {encoded}.`,
 	}, encodeHandler(session))
 }
 
@@ -100,6 +95,6 @@ func RegisterEncodeTool(server *mcp.Server, session *mcp.ClientSession) {
 func RegisterDecodeTool(server *mcp.Server, session *mcp.ClientSession) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "burp_decode",
-		Description: `Decode content. Params: content, type (url|base64). Returns {decoded}.`,
+		Description: `Decode content locally. Params: content, type (url|base64). Returns {decoded}.`,
 	}, decodeHandler(session))
 }

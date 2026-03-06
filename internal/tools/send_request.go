@@ -29,6 +29,10 @@ type SendRequestInput struct {
 	BodyLimit int `json:"bodyLimit,omitempty" jsonschema:"Response body byte limit (default 2000)"`
 	// Body offset in bytes
 	BodyOffset int `json:"bodyOffset,omitempty" jsonschema:"Response body byte offset"`
+	// Return all headers (default: security-relevant only)
+	AllHeaders bool `json:"allHeaders,omitempty" jsonschema:"Return all headers (default: security-relevant only)"`
+	// Return only status + headers, skip body
+	HeadersOnly bool `json:"headersOnly,omitempty" jsonschema:"Return only status and headers, skip body"`
 }
 
 // SendRequestOutput is the clean response from burp_send_request.
@@ -92,44 +96,72 @@ func sendRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.C
 		// Normalize raw request line endings for Burp
 		rawNorm := normalizeRawRequest(input.Raw)
 
-		// Try HTTP/2 first, then fall back to HTTP/1.1
-		responseText, err := tryHTTP2(ctx, session, parsed, host, port, useTLS)
-		if err != nil {
-			// Fall back to HTTP/1.1
+		var responseText string
+		var err error
+
+		// Check protocol cache - skip HTTP/2 for known HTTP/1.1 hosts
+		if isHTTP1Only(host) {
 			responseText, err = tryHTTP1(ctx, session, rawNorm, host, port, useTLS)
 			if err != nil {
 				return nil, SendRequestOutput{}, fmt.Errorf("request failed: %w", err)
 			}
-		}
+			responseText = burp.UnwrapResponse(responseText)
+		} else {
+			// Try HTTP/2 first, then fall back to HTTP/1.1
+			responseText, err = tryHTTP2(ctx, session, parsed, host, port, useTLS)
+			if err != nil {
+				// Fall back to HTTP/1.1
+				markHTTP1Only(host)
+				responseText, err = tryHTTP1(ctx, session, rawNorm, host, port, useTLS)
+				if err != nil {
+					return nil, SendRequestOutput{}, fmt.Errorf("request failed: %w", err)
+				}
+			}
 
-		// Unwrap Burp's HttpRequestResponse{...} wrapper, extract just the HTTP response
-		responseText = burp.UnwrapResponse(responseText)
+			// Unwrap Burp's HttpRequestResponse{...} wrapper
+			responseText = burp.UnwrapResponse(responseText)
 
-		// Fall back to HTTP/1.1 if HTTP/2 response is empty or 502
-		needsFallback := strings.TrimSpace(responseText) == ""
-		if !needsFallback && strings.HasPrefix(responseText, "HTTP/") {
-			parts := strings.SplitN(responseText, " ", 3)
-			needsFallback = len(parts) >= 2 && parts[1] == "502"
-		}
-		if needsFallback {
-			fallbackText, fallbackErr := tryHTTP1(ctx, session, rawNorm, host, port, useTLS)
-			if fallbackErr == nil {
-				responseText = burp.UnwrapResponse(fallbackText)
+			// Fall back to HTTP/1.1 if HTTP/2 response is empty or 502
+			needsFallback := strings.TrimSpace(responseText) == ""
+			if !needsFallback && strings.HasPrefix(responseText, "HTTP/") {
+				parts := strings.SplitN(responseText, " ", 3)
+				needsFallback = len(parts) >= 2 && parts[1] == "502"
+			}
+			if needsFallback {
+				markHTTP1Only(host)
+				fallbackText, fallbackErr := tryHTTP1(ctx, session, rawNorm, host, port, useTLS)
+				if fallbackErr == nil {
+					responseText = burp.UnwrapResponse(fallbackText)
+				}
 			}
 		}
 
+		// In headersOnly mode, limit body to 1 byte (just enough to get bodySize)
+		parseLimit := bodyLimit
+		if input.HeadersOnly {
+			parseLimit = 1
+		}
+
 		// Parse the response
-		resp := burp.ParseHTTPResponse(responseText, input.BodyOffset, bodyLimit)
+		resp := burp.ParseHTTPResponse(responseText, input.BodyOffset, parseLimit)
 		if resp == nil {
 			return nil, SendRequestOutput{}, fmt.Errorf("failed to parse response")
 		}
 
+		// Filter headers unless allHeaders requested
+		headers := resp.Headers
+		if !input.AllHeaders {
+			headers = burp.FilterHeaders(headers)
+		}
+
 		output := SendRequestOutput{
 			StatusCode: resp.StatusCode,
-			Headers:    resp.Headers,
-			Body:       resp.Body,
+			Headers:    headers,
 			BodySize:   resp.BodySize,
-			Truncated:  resp.Truncated,
+		}
+		if !input.HeadersOnly {
+			output.Body = resp.Body
+			output.Truncated = resp.Truncated
 		}
 
 		return nil, output, nil
@@ -187,6 +219,6 @@ func tryHTTP1(ctx context.Context, session *mcp.ClientSession, rawContent string
 func RegisterSendRequestTool(server *mcp.Server, session *mcp.ClientSession) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "burp_send_request",
-		Description: `Send HTTP request via Burp. Auto-detects HTTP/2 vs HTTP/1.1. Takes raw HTTP request string. Returns {statusCode, headers, body, bodySize, truncated}. Body limit: 2KB default.`,
+		Description: `Send HTTP request via Burp. Returns {statusCode, headers, body, bodySize, truncated}. Default: security headers only, 2KB body. Options: allHeaders, headersOnly, bodyLimit, bodyOffset.`,
 	}, sendRequestHandler(session))
 }
