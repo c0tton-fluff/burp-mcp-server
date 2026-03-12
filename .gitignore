@@ -11,3 +11,9 @@ burp-mcp-server
 
 # Burp extensions
 extensions/
+
+# CLI binary (Python script in dev)
+Burp-CLI/burp
+
+# Build output
+dist/

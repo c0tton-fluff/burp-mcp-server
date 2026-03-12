@@ -305,12 +305,71 @@ Response:
 }
 ```
 
+## Burp CLI
+
+Standalone command-line client for Burp Suite. No MCP required -- sends requests through Burp's proxy listener so they appear in Proxy > HTTP History. Zero dependencies beyond Python stdlib.
+
+### Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/c0tton-fluff/burp-mcp-server/main/install.sh | TOOL=cli bash
+```
+
+Or download from [Releases](https://github.com/c0tton-fluff/burp-mcp-server/releases).
+
+### Usage
+
+Requires Burp Suite running with proxy listener on `127.0.0.1:8080` (default).
+
+```bash
+# Send a structured request (proxied through Burp)
+burp send GET https://target.com/api/users
+burp send POST https://target.com/api/login -j '{"user":"admin","pass":"test"}'
+burp send PUT https://target.com/api/profile -H "Authorization: Bearer tok" -j '{"role":"admin"}'
+
+# Send a raw HTTP request
+burp raw -f request.txt target.com
+echo -e 'GET / HTTP/1.1\r\nHost: example.com\r\n\r\n' | burp raw
+
+# Race condition attack (last-byte sync, direct -- bypasses proxy)
+burp race target.com -f transfer.txt -n 20
+
+# Skip proxy, send direct
+burp send GET https://target.com/api/health --direct
+
+# Encode/decode
+burp encode base64 "hello world"
+burp decode url "%3Cscript%3E"
+burp encode hex "test"
+```
+
+### CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `send METHOD URL` | Send structured HTTP request through Burp proxy |
+| `raw [HOST]` | Send raw HTTP request from file or stdin |
+| `race [HOST]` | Single-packet last-byte sync race condition attack (direct) |
+| `encode TYPE VALUE` | Encode value (url, base64, hex) |
+| `decode TYPE VALUE` | Decode value (url, base64, hex) |
+
+### Global Flags
+
+| Flag | Description |
+|------|-------------|
+| `--proxy` | Burp proxy address (default `127.0.0.1:8080`, or set `BURP_PROXY`) |
+| `--direct` | Skip proxy, connect directly to target |
+| `--all-headers` | Return all response headers (default: security-relevant only) |
+| `-b, --body-limit` | Response body byte limit (default 2000) |
+| `-t, --timeout` | Request timeout in seconds (default 30) |
+
 ## Troubleshooting
 
 | Error | Fix |
 |-------|-----|
 | Tools not appearing | Verify binary path in `~/.mcp.json`, restart Claude Code |
-| Connection refused | Ensure Burp is running with MCP enabled on port 9876 |
+| Connection refused (MCP) | Ensure Burp is running with MCP enabled on port 9876 |
+| Connection refused (CLI) | Ensure Burp proxy listener is on port 8080 |
 | Request hangs | HTTP/2 timeout + fallback handles this automatically (15s first time, cached after) |
 | Empty proxy history | Only shows browser-proxied traffic, not MCP `send_request` calls |
 
