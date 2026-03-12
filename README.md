@@ -4,11 +4,11 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/c0tton-fluff/burp-mcp-server)](https://github.com/c0tton-fluff/burp-mcp-server/releases)
 
-MCP server for [Burp Suite Professional](https://portswigger.net/burp) integration. Enables AI assistants like Claude Code to send requests, read proxy history, access scanner findings, stage requests in Repeater/Intruder, and run race condition attacks -- with clean structured responses, body limits, and smart header filtering.
+MCP server + standalone CLI for [Burp Suite Professional](https://portswigger.net/burp). Enables AI assistants like Claude Code to send requests, read proxy history, access scanner findings, stage requests in Repeater/Intruder, and run race condition attacks -- with clean structured responses, body limits, and smart header filtering.
 
 ## Why
 
-Burp's native MCP extension returns verbose `HttpRequestResponse{...}` blobs with no body limits, separate HTTP/1.1 and HTTP/2 tools, and 14+ tools that waste context. This binary replaces all of that with 11 clean tools, 2KB body limits, smart header filtering, protocol caching, batch requests, and structured JSON output.
+Burp's native MCP extension returns verbose `HttpRequestResponse{...}` blobs with no body limits, separate HTTP/1.1 and HTTP/2 tools, and 14+ tools that waste context. This replaces all of that with 11 clean tools, 2KB body limits, smart header filtering, protocol caching, batch requests, and structured JSON output.
 
 ## Features
 
@@ -24,13 +24,18 @@ Burp's native MCP extension returns verbose `HttpRequestResponse{...}` blobs wit
 - **Race condition attack** -- Last-byte sync across parallel connections with deduplicated output
 - **Local encode/decode** -- URL and Base64 encoding handled locally in Go (no SSE roundtrip)
 
-## Architecture
+---
+
+<details open>
+<summary><h2>MCP Server (for Claude Code / AI assistants)</h2></summary>
+
+### Architecture
 
 ```
 Claude Code  -->  stdio  -->  burp-mcp-server (Go)  -->  SSE  -->  Burp Extension (port 9876)
 ```
 
-## Installation
+### Installation
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/c0tton-fluff/burp-mcp-server/main/install.sh | bash
@@ -48,7 +53,7 @@ go build -o burp-mcp-server .
 ```
 </details>
 
-## Quick Start
+### Quick Start
 
 **1. Enable MCP in Burp**
 
@@ -85,9 +90,9 @@ Add to `~/.mcp.json`:
 "Race the transfer endpoint with 20 requests"
 ```
 
-## Tools Reference
+### Tools Reference
 
-### HTTP
+#### HTTP
 
 | Tool | Description |
 |------|-------------|
@@ -95,7 +100,7 @@ Add to `~/.mcp.json`:
 | `burp_batch_send` | Send up to 10 requests in parallel (for IDOR/BAC testing) |
 | `burp_race_request` | Single-packet race condition attack with deduplicated output |
 
-### Proxy & Scanner
+#### Proxy & Scanner
 
 | Tool | Description |
 |------|-------------|
@@ -103,14 +108,14 @@ Add to `~/.mcp.json`:
 | `burp_get_request` | Fetch full request + response from proxy history by index |
 | `burp_get_scanner_issues` | Get structured scanner findings |
 
-### Staging
+#### Staging
 
 | Tool | Description |
 |------|-------------|
 | `burp_create_repeater_tab` | Create named Repeater tab with request |
 | `burp_send_to_intruder` | Send request to Intruder |
 
-### Encoding
+#### Encoding
 
 | Tool | Description |
 |------|-------------|
@@ -120,7 +125,7 @@ Add to `~/.mcp.json`:
 <details>
 <summary>Full parameter reference</summary>
 
-### burp_send_request
+#### burp_send_request
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `raw` | string | required | Raw HTTP request including headers and body |
@@ -132,7 +137,7 @@ Add to `~/.mcp.json`:
 | `allHeaders` | bool | false | Return all headers (default: security-relevant only) |
 | `headersOnly` | bool | false | Return only status + headers, skip body |
 
-### burp_batch_send
+#### burp_batch_send
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `requests` | array | required | Array of `{raw, host, port, tls, tag}` objects (max 10) |
@@ -148,7 +153,7 @@ Each request in the array:
 | `tls` | bool | Use HTTPS |
 | `tag` | string | Label to identify this request in results |
 
-### burp_race_request
+#### burp_race_request
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `raw` | string | required | Raw HTTP request including headers and body |
@@ -159,14 +164,14 @@ Each request in the array:
 | `bodyLimit` | int | 500 | Response body byte limit per response |
 | `showAll` | bool | false | Return all individual responses instead of deduplicated groups |
 
-### burp_get_proxy_history
+#### burp_get_proxy_history
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `count` | int | 10 | Number of entries (max 50) |
 | `offset` | int | 0 | Pagination offset |
 | `regex` | string | | Regex filter for URL/content |
 
-### burp_get_request
+#### burp_get_request
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `index` | int | required | Proxy history index (1-based, from burp_get_proxy_history) |
@@ -174,14 +179,14 @@ Each request in the array:
 | `bodyOffset` | int | 0 | Response body byte offset |
 | `allHeaders` | bool | false | Return all headers |
 
-### burp_get_scanner_issues
+#### burp_get_scanner_issues
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `count` | int | 10 | Number of issues (max 50) |
 | `offset` | int | 0 | Pagination offset |
 | `detailLimit` | int | 500 | Max chars per issue detail (-1 = unlimited) |
 
-### burp_create_repeater_tab / burp_send_to_intruder
+#### burp_create_repeater_tab / burp_send_to_intruder
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `raw` | string | required | Raw HTTP request |
@@ -190,7 +195,7 @@ Each request in the array:
 | `tls` | bool | true | Use HTTPS |
 | `tabName` | string | | Tab name |
 
-### burp_encode / burp_decode
+#### burp_encode / burp_decode
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `content` | string | Content to encode/decode |
@@ -198,7 +203,7 @@ Each request in the array:
 
 </details>
 
-## Response Format
+### Response Format
 
 Default response (security headers only):
 
@@ -229,7 +234,7 @@ Headers-only mode (`headersOnly: true`) omits `body` -- useful for recon:
 }
 ```
 
-## Race Condition Attack
+### Race Condition Attack
 
 `burp_race_request` implements the [single-packet attack](https://portswigger.net/research/smashing-the-state-machine) technique from James Kettle's research. It bypasses Burp's proxy entirely for timing precision.
 
@@ -278,7 +283,7 @@ This is the same technique Turbo Intruder uses -- but callable directly from Cla
 
 Use `showAll: true` to get individual responses instead of groups.
 
-## Batch Requests
+### Batch Requests
 
 `burp_batch_send` sends up to 10 requests in parallel. Tag each request to identify it in results:
 
@@ -305,7 +310,12 @@ Response:
 }
 ```
 
-## Burp CLI
+</details>
+
+---
+
+<details>
+<summary><h2>Standalone CLI (for terminal use)</h2></summary>
 
 Standalone command-line client for Burp Suite. No MCP required -- sends requests through Burp's proxy listener so they appear in Proxy > HTTP History. Zero dependencies beyond Python stdlib.
 
@@ -362,6 +372,10 @@ burp encode hex "test"
 | `--all-headers` | Return all response headers (default: security-relevant only) |
 | `-b, --body-limit` | Response body byte limit (default 2000) |
 | `-t, --timeout` | Request timeout in seconds (default 30) |
+
+</details>
+
+---
 
 ## Troubleshooting
 
