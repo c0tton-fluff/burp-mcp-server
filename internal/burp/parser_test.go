@@ -67,7 +67,7 @@ func TestParseHTTPResponse_Basic(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Errorf("StatusCode = %d, want 200", resp.StatusCode)
 	}
-	if resp.Headers["Content-Type"] != "text/html" {
+	if resp.Headers["Content-Type"][0] != "text/html" {
 		t.Errorf("Content-Type = %q", resp.Headers["Content-Type"])
 	}
 	if resp.Body != "<html>hello</html>" {
@@ -145,7 +145,7 @@ func TestParseHTTPResponse_UnixLineEndings(t *testing.T) {
 	if resp.StatusCode != 301 {
 		t.Errorf("StatusCode = %d, want 301", resp.StatusCode)
 	}
-	if resp.Headers["Location"] != "/new" {
+	if resp.Headers["Location"][0] != "/new" {
 		t.Errorf("Location = %q", resp.Headers["Location"])
 	}
 }
@@ -205,6 +205,115 @@ func TestParseProxyHistory_HttpRequestResponseBlock(t *testing.T) {
 	entries := ParseProxyHistory(raw)
 	if len(entries) == 0 {
 		t.Fatal("expected at least 1 entry from HttpRequestResponse block")
+	}
+}
+
+func TestParseProxyHistory_JSON(t *testing.T) {
+	// PortSwigger MCP extension returns JSON objects separated by \n\n
+	raw := `{"request":"GET /api/users HTTP/1.1\r\nHost: target.com\r\n\r\n","response":"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n[{\"id\":1}]","notes":""}
+
+{"request":"POST /api/login HTTP/1.1\r\nHost: target.com\r\nContent-Type: application/json\r\n\r\n{\"user\":\"admin\"}","response":"HTTP/1.1 302 Found\r\nLocation: /dashboard\r\n\r\n","notes":""}`
+
+	entries := ParseProxyHistory(raw)
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2", len(entries))
+	}
+	if entries[0].Method != "GET" {
+		t.Errorf("entry[0].Method = %q, want GET", entries[0].Method)
+	}
+	if entries[0].StatusCode != 200 {
+		t.Errorf("entry[0].StatusCode = %d, want 200", entries[0].StatusCode)
+	}
+	if !strings.Contains(entries[0].URL, "target.com/api/users") {
+		t.Errorf("entry[0].URL = %q, want target.com/api/users", entries[0].URL)
+	}
+	if entries[1].Method != "POST" {
+		t.Errorf("entry[1].Method = %q, want POST", entries[1].Method)
+	}
+	if entries[1].StatusCode != 302 {
+		t.Errorf("entry[1].StatusCode = %d, want 302", entries[1].StatusCode)
+	}
+}
+
+func TestParseProxyHistory_JSONNoResponse(t *testing.T) {
+	raw := `{"request":"GET / HTTP/1.1\r\nHost: slow.com\r\n\r\n","response":"<no response>","notes":""}`
+	entries := ParseProxyHistory(raw)
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	if entries[0].StatusCode != 0 {
+		t.Errorf("StatusCode = %d, want 0 for no response", entries[0].StatusCode)
+	}
+}
+
+func TestParseProxyHistory_JSONEndMarker(t *testing.T) {
+	raw := `{"request":"GET / HTTP/1.1\r\nHost: x.com\r\n\r\n","response":"HTTP/1.1 200 OK\r\n\r\nok","notes":""}
+
+Reached end of items`
+	entries := ParseProxyHistory(raw)
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+}
+
+func TestParseProxyHistory_TruncatedJSON(t *testing.T) {
+	// Burp truncates entries > 5000 chars, breaking JSON
+	raw := `{"request":"POST /beacon HTTP/1.1\r\nHost: rum.datadoghq.com\r\nContent-Type: text/plain\r\n\r\n{\"sdk\":\"5.23\",\"data\":\"` + strings.Repeat("x", 4000)
+	entries := ParseProxyHistory(raw)
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	if entries[0].Method != "POST" {
+		t.Errorf("Method = %q, want POST", entries[0].Method)
+	}
+	if !strings.Contains(entries[0].URL, "rum.datadoghq.com") {
+		t.Errorf("URL = %q, want to contain rum.datadoghq.com", entries[0].URL)
+	}
+}
+
+func TestExtractRequestResponse_TruncatedJSON(t *testing.T) {
+	// Response field exists but truncated mid-body
+	raw := `{"request":"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n","response":"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html>` + strings.Repeat("A", 4000)
+	req, resp := ExtractRequestResponse(raw)
+	if !strings.HasPrefix(req, "GET / HTTP/1.1") {
+		t.Errorf("request = %q", req)
+	}
+	if !strings.HasPrefix(resp, "HTTP/1.1 200 OK") {
+		t.Errorf("response should start with status line, got %q", resp[:min(50, len(resp))])
+	}
+}
+
+func TestExtractRequestResponse_TruncatedInRequest(t *testing.T) {
+	// Truncated before response boundary
+	raw := `{"request":"POST /api HTTP/1.1\r\nHost: api.com\r\n\r\n` + strings.Repeat("B", 5000)
+	req, resp := ExtractRequestResponse(raw)
+	if !strings.HasPrefix(req, "POST /api HTTP/1.1") {
+		t.Errorf("request should start with POST, got %q", req[:min(50, len(req))])
+	}
+	if resp != "" {
+		t.Errorf("response should be empty for truncated-in-request, got len=%d", len(resp))
+	}
+}
+
+func TestExtractRequestResponse_JSON(t *testing.T) {
+	raw := `{"request":"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n","response":"HTTP/1.1 200 OK\r\n\r\nhello","notes":""}`
+	req, resp := ExtractRequestResponse(raw)
+	if !strings.HasPrefix(req, "GET / HTTP/1.1") {
+		t.Errorf("request = %q", req)
+	}
+	if !strings.HasPrefix(resp, "HTTP/1.1 200 OK") {
+		t.Errorf("response = %q", resp)
+	}
+}
+
+func TestExtractRequestResponse_Wrapper(t *testing.T) {
+	raw := `HttpRequestResponse{httpRequest=GET / HTTP/1.1, httpResponse=HTTP/1.1 200 OK, messageAnnotations=Annotations{comment='', highlightColor=NONE}}`
+	req, resp := ExtractRequestResponse(raw)
+	if req != "GET / HTTP/1.1" {
+		t.Errorf("request = %q", req)
+	}
+	if resp != "HTTP/1.1 200 OK" {
+		t.Errorf("response = %q", resp)
 	}
 }
 
@@ -270,6 +379,38 @@ func TestParseScannerIssues_Empty(t *testing.T) {
 	issues := ParseScannerIssues("", 500)
 	if issues != nil {
 		t.Errorf("ParseScannerIssues(\"\") = %v, want nil", issues)
+	}
+}
+
+func TestParseHTTPResponse_DuplicateHeaders(t *testing.T) {
+	raw := "HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\nServer: nginx\r\n\r\nok"
+	resp := ParseHTTPResponse(raw, 0, 2000)
+	if resp == nil {
+		t.Fatal("ParseHTTPResponse returned nil")
+	}
+	cookies := resp.Headers["Set-Cookie"]
+	if len(cookies) != 2 {
+		t.Fatalf("Set-Cookie count = %d, want 2", len(cookies))
+	}
+	if cookies[0] != "a=1" || cookies[1] != "b=2" {
+		t.Errorf("Set-Cookie = %v, want [a=1, b=2]", cookies)
+	}
+	if resp.Headers["Server"][0] != "nginx" {
+		t.Errorf("Server = %q", resp.Headers["Server"])
+	}
+}
+
+func TestFlattenHeaders_Mixed(t *testing.T) {
+	headers := map[string][]string{
+		"Server":     {"nginx"},
+		"Set-Cookie": {"a=1", "b=2"},
+	}
+	flat := FlattenHeaders(headers)
+	if s, ok := flat["Server"].(string); !ok || s != "nginx" {
+		t.Errorf("Server = %v, want string nginx", flat["Server"])
+	}
+	if arr, ok := flat["Set-Cookie"].([]string); !ok || len(arr) != 2 {
+		t.Errorf("Set-Cookie = %v, want []string{a=1, b=2}", flat["Set-Cookie"])
 	}
 }
 

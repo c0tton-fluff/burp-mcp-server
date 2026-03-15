@@ -26,19 +26,19 @@ type BatchRequest struct {
 // BatchSendInput is the input for burp_batch_send.
 type BatchSendInput struct {
 	Requests   []BatchRequest `json:"requests" jsonschema:"required,Array of requests to send in parallel"`
-	BodyLimit  int            `json:"bodyLimit,omitempty" jsonschema:"Response body limit per response (default 2000)"`
+	BodyLimit  int            `json:"bodyLimit,omitempty" jsonschema:"Response body limit per response (default 10000)"`
 	AllHeaders bool           `json:"allHeaders,omitempty" jsonschema:"Return all headers (default: security-relevant only)"`
 }
 
 // BatchResponseEntry is one response in the batch output.
 type BatchResponseEntry struct {
-	Tag        string            `json:"tag,omitempty"`
-	StatusCode int               `json:"statusCode"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Body       string            `json:"body,omitempty"`
-	BodySize   int               `json:"bodySize"`
-	Truncated  bool              `json:"truncated,omitempty"`
-	Error      string            `json:"error,omitempty"`
+	Tag        string         `json:"tag,omitempty"`
+	StatusCode int            `json:"statusCode"`
+	Headers    map[string]any `json:"headers,omitempty"`
+	Body       string         `json:"body,omitempty"`
+	BodySize   int            `json:"bodySize"`
+	Truncated  bool           `json:"truncated,omitempty"`
+	Error      string         `json:"error,omitempty"`
 }
 
 // BatchSendOutput is the output of burp_batch_send.
@@ -58,7 +58,7 @@ func batchSendHandler(session *mcp.ClientSession) func(context.Context, *mcp.Cal
 
 		bodyLimit := input.BodyLimit
 		if bodyLimit == 0 {
-			bodyLimit = 2000
+			bodyLimit = defaultBodyLimit
 		}
 
 		responses := make([]BatchResponseEntry, len(input.Requests))
@@ -201,11 +201,11 @@ func executeSingleRequest(
 	entry.BodySize = resp.BodySize
 	entry.Truncated = resp.Truncated
 
-	if allHeaders {
-		entry.Headers = resp.Headers
-	} else {
-		entry.Headers = burp.FilterHeaders(resp.Headers)
+	headers := resp.Headers
+	if !allHeaders {
+		headers = burp.FilterHeaders(headers)
 	}
+	entry.Headers = burp.FlattenHeaders(headers)
 
 	return entry
 }

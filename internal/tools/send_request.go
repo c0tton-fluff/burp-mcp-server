@@ -25,8 +25,8 @@ type SendRequestInput struct {
 	Port int `json:"port,omitempty" jsonschema:"Target port (default based on TLS)"`
 	// Use HTTPS
 	TLS *bool `json:"tls,omitempty" jsonschema:"Use HTTPS (default true)"`
-	// Body limit in bytes (default 2000)
-	BodyLimit int `json:"bodyLimit,omitempty" jsonschema:"Response body byte limit (default 2000)"`
+	// Body limit in bytes (default 10000)
+	BodyLimit int `json:"bodyLimit,omitempty" jsonschema:"Response body byte limit (default 10000)"`
 	// Body offset in bytes
 	BodyOffset int `json:"bodyOffset,omitempty" jsonschema:"Response body byte offset"`
 	// Return all headers (default: security-relevant only)
@@ -35,13 +35,16 @@ type SendRequestInput struct {
 	HeadersOnly bool `json:"headersOnly,omitempty" jsonschema:"Return only status and headers, skip body"`
 }
 
+// defaultBodyLimit is the default response body byte limit across tools.
+const defaultBodyLimit = 10000
+
 // SendRequestOutput is the clean response from burp_send_request.
 type SendRequestOutput struct {
-	StatusCode int               `json:"statusCode"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Body       string            `json:"body,omitempty"`
-	BodySize   int               `json:"bodySize"`
-	Truncated  bool              `json:"truncated,omitempty"`
+	StatusCode int            `json:"statusCode"`
+	Headers    map[string]any `json:"headers,omitempty"`
+	Body       string         `json:"body,omitempty"`
+	BodySize   int            `json:"bodySize"`
+	Truncated  bool           `json:"truncated,omitempty"`
 }
 
 func sendRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.CallToolRequest, SendRequestInput) (*mcp.CallToolResult, SendRequestOutput, error) {
@@ -90,7 +93,7 @@ func sendRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.C
 		// Body limit defaults
 		bodyLimit := input.BodyLimit
 		if bodyLimit == 0 {
-			bodyLimit = 2000
+			bodyLimit = defaultBodyLimit
 		}
 
 		// Normalize raw request line endings for Burp
@@ -156,7 +159,7 @@ func sendRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.C
 
 		output := SendRequestOutput{
 			StatusCode: resp.StatusCode,
-			Headers:    headers,
+			Headers:    burp.FlattenHeaders(headers),
 			BodySize:   resp.BodySize,
 		}
 		if !input.HeadersOnly {
@@ -219,6 +222,6 @@ func tryHTTP1(ctx context.Context, session *mcp.ClientSession, rawContent string
 func RegisterSendRequestTool(server *mcp.Server, session *mcp.ClientSession) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "burp_send_request",
-		Description: `Send HTTP request via Burp. Returns {statusCode, headers, body, bodySize, truncated}. Default: security headers only, 2KB body. Options: allHeaders, headersOnly, bodyLimit, bodyOffset.`,
+		Description: `Send HTTP request via Burp. Returns {statusCode, headers, body, bodySize, truncated}. Default: security headers only, 10KB body. Options: allHeaders, headersOnly, bodyLimit, bodyOffset.`,
 	}, sendRequestHandler(session))
 }

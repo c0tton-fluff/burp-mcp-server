@@ -12,8 +12,8 @@ import (
 type GetRequestInput struct {
 	// Proxy history index (1-based, from burp_get_proxy_history)
 	Index int `json:"index" jsonschema:"required,Proxy history index (1-based)"`
-	// Response body limit (default 2000)
-	BodyLimit int `json:"bodyLimit,omitempty" jsonschema:"Response body byte limit (default 2000)"`
+	// Response body limit (default 10000)
+	BodyLimit int `json:"bodyLimit,omitempty" jsonschema:"Response body byte limit (default 10000)"`
 	// Response body offset
 	BodyOffset int `json:"bodyOffset,omitempty" jsonschema:"Response body byte offset"`
 	// Return all headers (default: security-relevant only)
@@ -37,11 +37,11 @@ type RequestSummary struct {
 
 // ResponseSummary is the response portion.
 type ResponseSummary struct {
-	StatusCode int               `json:"statusCode"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Body       string            `json:"body,omitempty"`
-	BodySize   int               `json:"bodySize"`
-	Truncated  bool              `json:"truncated,omitempty"`
+	StatusCode int            `json:"statusCode"`
+	Headers    map[string]any `json:"headers,omitempty"`
+	Body       string         `json:"body,omitempty"`
+	BodySize   int            `json:"bodySize"`
+	Truncated  bool           `json:"truncated,omitempty"`
 }
 
 func getRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.CallToolRequest, GetRequestInput) (*mcp.CallToolResult, GetRequestOutput, error) {
@@ -52,7 +52,7 @@ func getRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.Ca
 
 		bodyLimit := input.BodyLimit
 		if bodyLimit == 0 {
-			bodyLimit = 2000
+			bodyLimit = defaultBodyLimit
 		}
 
 		// Fetch single entry: offset is 0-based, index is 1-based
@@ -70,8 +70,8 @@ func getRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.Ca
 			return nil, GetRequestOutput{}, fmt.Errorf("no entry at index %d", input.Index)
 		}
 
-		// Parse the request part
-		reqRaw := burp.UnwrapRequest(raw)
+		// Extract request and response (handles both JSON and wrapper formats)
+		reqRaw, respRaw := burp.ExtractRequestResponse(raw)
 		parsedReq := burp.ParseRawRequest(reqRaw)
 
 		reqSummary := RequestSummary{
@@ -83,7 +83,6 @@ func getRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.Ca
 		}
 
 		// Parse the response part
-		respRaw := burp.UnwrapResponse(raw)
 		parsedResp := burp.ParseHTTPResponse(respRaw, input.BodyOffset, bodyLimit)
 
 		var respSummary ResponseSummary
@@ -94,7 +93,7 @@ func getRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.Ca
 			}
 			respSummary = ResponseSummary{
 				StatusCode: parsedResp.StatusCode,
-				Headers:    headers,
+				Headers:    burp.FlattenHeaders(headers),
 				Body:       parsedResp.Body,
 				BodySize:   parsedResp.BodySize,
 				Truncated:  parsedResp.Truncated,

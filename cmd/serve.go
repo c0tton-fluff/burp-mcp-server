@@ -71,6 +71,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to connect to Burp MCP: %w", err)
 	}
 	defer burpClient.Close()
+	burp.SetGlobalClient(burpClient)
 	fmt.Fprintf(os.Stderr, "Connected to Burp MCP\n")
 
 	// Create MCP server for Claude Code

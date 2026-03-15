@@ -3,6 +3,7 @@ package burp
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"io"
 	"regexp"
 	"strconv"
@@ -64,14 +65,124 @@ func UnwrapRequest(raw string) string {
 	return requestPart
 }
 
+// ExtractRequestResponse extracts raw request and response strings from either
+// the JSON format (PortSwigger MCP extension) or the HttpRequestResponse{} wrapper.
+// Handles truncated JSON (Burp truncates entries > 5000 chars).
+func ExtractRequestResponse(raw string) (request, response string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
+	}
+
+	// Strip pagination sentinel that may be appended
+	if idx := strings.Index(raw, "\nReached end of items"); idx >= 0 {
+		raw = strings.TrimSpace(raw[:idx])
+	}
+
+	// Try full JSON unmarshal first
+	var item burpHistoryJSON
+	if err := json.Unmarshal([]byte(raw), &item); err == nil && item.Request != "" {
+		resp := item.Response
+		if resp == "<no response>" {
+			resp = ""
+		}
+		return item.Request, resp
+	}
+
+	// Truncated JSON fallback: extract "request" and "response" field values
+	// by string matching. Burp truncates entries at 5000 chars, breaking JSON.
+	if strings.HasPrefix(raw, "{\"request\":\"") {
+		req, resp := extractTruncatedJSON(raw)
+		if req != "" {
+			return req, resp
+		}
+	}
+
+	// Fall back to HttpRequestResponse{} wrapper
+	return UnwrapRequest(raw), UnwrapResponse(raw)
+}
+
+// extractTruncatedJSON extracts request and response from potentially truncated
+// JSON of the form {"request":"...","response":"...","notes":"..."}.
+// Uses the known field boundaries to find values even when JSON is incomplete.
+func extractTruncatedJSON(raw string) (request, response string) {
+	// Find the request field value
+	const reqPrefix = "{\"request\":\""
+	if !strings.HasPrefix(raw, reqPrefix) {
+		return "", ""
+	}
+
+	// Find end of request value: look for ","response":" boundary
+	const respBoundary = "\",\"response\":\""
+	respIdx := strings.Index(raw, respBoundary)
+	if respIdx < 0 {
+		// Response boundary not found - request value is truncated.
+		// Extract what we have, unescape JSON string.
+		reqEscaped := raw[len(reqPrefix):]
+		// Trim trailing incomplete escape sequences
+		if last := strings.LastIndex(reqEscaped, "\\"); last == len(reqEscaped)-1 {
+			reqEscaped = reqEscaped[:last]
+		}
+		return unescapeJSONString(reqEscaped), ""
+	}
+
+	reqEscaped := raw[len(reqPrefix):respIdx]
+	request = unescapeJSONString(reqEscaped)
+
+	// Extract response value
+	respStart := respIdx + len(respBoundary)
+	remaining := raw[respStart:]
+
+	const notesBoundary = "\",\"notes\":\""
+	notesIdx := strings.Index(remaining, notesBoundary)
+	if notesIdx < 0 {
+		// Notes boundary not found - response value may be truncated
+		respEscaped := remaining
+		if strings.HasSuffix(respEscaped, "\"}") {
+			respEscaped = respEscaped[:len(respEscaped)-2]
+		}
+		resp := unescapeJSONString(respEscaped)
+		if resp == "<no response>" {
+			resp = ""
+		}
+		return request, resp
+	}
+
+	respEscaped := remaining[:notesIdx]
+	resp := unescapeJSONString(respEscaped)
+	if resp == "<no response>" {
+		resp = ""
+	}
+	return request, resp
+}
+
+// unescapeJSONString reverses JSON string escaping (\r\n, \", \\, etc).
+func unescapeJSONString(s string) string {
+	// Try json.Unmarshal on a quoted string for correct unescaping
+	var result string
+	if err := json.Unmarshal([]byte("\""+s+"\""), &result); err == nil {
+		return result
+	}
+	// Manual fallback for truncated strings
+	r := strings.NewReplacer(
+		`\r\n`, "\r\n",
+		`\n`, "\n",
+		`\r`, "\r",
+		`\t`, "\t",
+		`\"`, "\"",
+		`\\`, "\\",
+	)
+	return r.Replace(s)
+}
+
 // ParsedHTTPResponse holds a parsed HTTP response.
 type ParsedHTTPResponse struct {
-	StatusCode int               `json:"statusCode"`
-	StatusLine string            `json:"statusLine"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Body       string            `json:"body,omitempty"`
-	BodySize   int               `json:"bodySize"`
-	Truncated  bool              `json:"truncated,omitempty"`
+	StatusCode int                 `json:"statusCode"`
+	StatusLine string              `json:"statusLine"`
+	Headers    map[string][]string `json:"headers,omitempty"`
+	Body       string              `json:"body,omitempty"`
+	BodySize   int                 `json:"bodySize"`
+	Truncated  bool                `json:"truncated,omitempty"`
 }
 
 // SecurityHeaders are headers relevant to pentesting. Used by FilterHeaders.
@@ -107,14 +218,28 @@ var SecurityHeaders = map[string]bool{
 }
 
 // FilterHeaders returns only security-relevant headers.
-func FilterHeaders(headers map[string]string) map[string]string {
-	filtered := make(map[string]string)
+func FilterHeaders(headers map[string][]string) map[string][]string {
+	filtered := make(map[string][]string)
 	for k, v := range headers {
 		if SecurityHeaders[strings.ToLower(k)] {
 			filtered[k] = v
 		}
 	}
 	return filtered
+}
+
+// FlattenHeaders converts multi-value headers for JSON output.
+// Single-value headers become strings, multi-value become string arrays.
+func FlattenHeaders(headers map[string][]string) map[string]any {
+	flat := make(map[string]any, len(headers))
+	for k, v := range headers {
+		if len(v) == 1 {
+			flat[k] = v[0]
+		} else {
+			flat[k] = v
+		}
+	}
+	return flat
 }
 
 // ParseHTTPResponse parses a raw HTTP response string into structured parts.
@@ -125,7 +250,7 @@ func ParseHTTPResponse(raw string, bodyOffset, bodyLimit int) *ParsedHTTPRespons
 	}
 
 	result := &ParsedHTTPResponse{
-		Headers: make(map[string]string),
+		Headers: make(map[string][]string),
 	}
 
 	// Split headers and body at the blank line
@@ -179,7 +304,7 @@ func ParseHTTPResponse(raw string, bodyOffset, bodyLimit int) *ParsedHTTPRespons
 		if colonIdx > 0 {
 			key := strings.TrimSpace(line[:colonIdx])
 			value := strings.TrimSpace(line[colonIdx+1:])
-			result.Headers[key] = value
+			result.Headers[key] = append(result.Headers[key], value)
 		}
 		if err != nil {
 			break
@@ -287,16 +412,31 @@ type ProxyHistoryEntry struct {
 // or Burp's verbose format.
 var proxyEntryRegex = regexp.MustCompile(`(\d+)\s*\|\s*(\w+)\s*\|\s*(https?://\S+)\s*\|\s*(\d+)`)
 
+// burpHistoryJSON is the JSON format returned by PortSwigger's MCP extension.
+// Each entry is JSON with request/response as raw HTTP strings, separated by \n\n.
+type burpHistoryJSON struct {
+	Request  string `json:"request"`
+	Response string `json:"response"`
+	Notes    string `json:"notes"`
+}
+
 // ParseProxyHistory parses Burp's proxy history output into structured entries.
-// The format varies, so we try multiple parsing strategies.
+// Supports JSON (PortSwigger MCP extension), pipe-delimited tables, and
+// HttpRequestResponse{} wrapper format.
 func ParseProxyHistory(raw string) []ProxyHistoryEntry {
 	if raw == "" {
 		return nil
 	}
 
+	// Strategy 1: JSON format (PortSwigger MCP extension)
+	// Entries are JSON objects separated by \n\n
+	if entries := parseProxyHistoryJSON(raw); len(entries) > 0 {
+		return entries
+	}
+
 	var entries []ProxyHistoryEntry
 
-	// Strategy 1: Try line-by-line table format
+	// Strategy 2: Pipe-delimited table format
 	lines := strings.Split(raw, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -317,7 +457,7 @@ func ParseProxyHistory(raw string) []ProxyHistoryEntry {
 			continue
 		}
 
-		// Strategy 2: Try parsing HttpRequestResponse blocks
+		// Strategy 3: HttpRequestResponse{} on single lines
 		if strings.Contains(line, "HttpRequestResponse{") {
 			entry := parseHttpRequestResponseEntry(line)
 			if entry != nil {
@@ -326,7 +466,7 @@ func ParseProxyHistory(raw string) []ProxyHistoryEntry {
 		}
 	}
 
-	// Strategy 3: If no entries found, try parsing as a single block
+	// Strategy 4: Multi-line HttpRequestResponse{} blocks
 	if len(entries) == 0 && strings.Contains(raw, "HttpRequestResponse{") {
 		blocks := splitHttpRequestResponseBlocks(raw)
 		for i, block := range blocks {
@@ -335,6 +475,65 @@ func ParseProxyHistory(raw string) []ProxyHistoryEntry {
 				entries = append(entries, *entry)
 			}
 		}
+	}
+
+	return entries
+}
+
+// parseProxyHistoryJSON parses the JSON format from PortSwigger's MCP extension.
+// Each entry is a JSON object; multiple entries separated by \n\n.
+func parseProxyHistoryJSON(raw string) []ProxyHistoryEntry {
+	blocks := strings.Split(raw, "\n\n")
+	var entries []ProxyHistoryEntry
+	sawJSON := false
+
+	for i, block := range blocks {
+		block = strings.TrimSpace(block)
+		if block == "" || block == "Reached end of items" {
+			continue
+		}
+
+		// Must look like JSON to proceed
+		if !strings.HasPrefix(block, "{") {
+			if !sawJSON {
+				return nil // not JSON format, bail to other strategies
+			}
+			continue
+		}
+		sawJSON = true
+
+		var reqStr, respStr string
+
+		// Try full JSON unmarshal first
+		var item burpHistoryJSON
+		if err := json.Unmarshal([]byte(block), &item); err == nil {
+			reqStr = item.Request
+			respStr = item.Response
+		} else {
+			// Truncated JSON - extract fields by string matching
+			reqStr, respStr = extractTruncatedJSON(block)
+		}
+
+		entry := ProxyHistoryEntry{ID: i + 1}
+
+		if reqStr != "" {
+			parsed := ParseRawRequest(reqStr)
+			entry.Method = parsed.Method
+			if parsed.Host != "" {
+				entry.URL = "https://" + parsed.Host + parsed.Path
+			} else {
+				entry.URL = parsed.Path
+			}
+		}
+
+		if respStr != "" && respStr != "<no response>" {
+			resp := ParseHTTPResponse(respStr, 0, 0)
+			if resp != nil {
+				entry.StatusCode = resp.StatusCode
+			}
+		}
+
+		entries = append(entries, entry)
 	}
 
 	return entries
