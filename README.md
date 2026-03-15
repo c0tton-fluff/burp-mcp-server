@@ -8,13 +8,13 @@ MCP server + standalone CLI for [Burp Suite Professional](https://portswigger.ne
 
 ## Why
 
-Burp's native MCP extension returns verbose `HttpRequestResponse{...}` blobs with no body limits, separate HTTP/1.1 and HTTP/2 tools, and 14+ tools that waste context. This replaces all of that with 11 clean tools, 2KB body limits, smart header filtering, protocol caching, batch requests, and structured JSON output.
+Burp's native MCP extension returns verbose `HttpRequestResponse{...}` blobs with no body limits, separate HTTP/1.1 and HTTP/2 tools, and 14+ tools that waste context. This replaces all of that with 11 clean tools, 10KB body limits, smart header filtering, protocol caching, batch requests, and structured JSON output.
 
 ## Features
 
 - **Smart header filtering** -- Returns only security-relevant headers by default (Set-Cookie, CSP, CORS, etc). Use `allHeaders: true` for everything.
 - **Unified HTTP send** -- Auto-detects HTTP/2 with 15s timeout, falls back to HTTP/1.1. Caches protocol per host to skip failed HTTP/2 on repeat requests.
-- **Body limits** -- 2KB default, configurable per request (no more 873KB response blobs)
+- **Body limits** -- 10KB default, configurable per request (no more 873KB response blobs)
 - **Headers-only mode** -- `headersOnly: true` skips the body entirely for fast recon/fingerprinting
 - **Batch send** -- Fire up to 10 requests in parallel in a single tool call for IDOR/BAC testing
 - **Clean output** -- `{statusCode, headers, body, bodySize, truncated}` instead of Java toString blobs
@@ -132,7 +132,7 @@ Add to `~/.mcp.json`:
 | `host` | string | from Host header | Target host (overrides Host header) |
 | `port` | int | 443/80 | Target port |
 | `tls` | bool | true | Use HTTPS |
-| `bodyLimit` | int | 2000 | Response body byte limit |
+| `bodyLimit` | int | 10000 | Response body byte limit |
 | `bodyOffset` | int | 0 | Response body byte offset |
 | `allHeaders` | bool | false | Return all headers (default: security-relevant only) |
 | `headersOnly` | bool | false | Return only status + headers, skip body |
@@ -141,7 +141,7 @@ Add to `~/.mcp.json`:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `requests` | array | required | Array of `{raw, host, port, tls, tag}` objects (max 10) |
-| `bodyLimit` | int | 2000 | Response body limit per response |
+| `bodyLimit` | int | 10000 | Response body limit per response |
 | `allHeaders` | bool | false | Return all headers |
 
 Each request in the array:
@@ -175,7 +175,7 @@ Each request in the array:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `index` | int | required | Proxy history index (1-based, from burp_get_proxy_history) |
-| `bodyLimit` | int | 2000 | Response body byte limit |
+| `bodyLimit` | int | 10000 | Response body byte limit |
 | `bodyOffset` | int | 0 | Response body byte offset |
 | `allHeaders` | bool | false | Return all headers |
 
@@ -370,7 +370,7 @@ burp encode hex "test"
 | `--proxy` | Burp proxy address (default `127.0.0.1:8080`, or set `BURP_PROXY`) |
 | `--direct` | Skip proxy, connect directly to target |
 | `--all-headers` | Return all response headers (default: security-relevant only) |
-| `-b, --body-limit` | Response body byte limit (default 2000) |
+| `-b, --body-limit` | Response body byte limit (default 10000) |
 | `-t, --timeout` | Request timeout in seconds (default 30) |
 
 </details>

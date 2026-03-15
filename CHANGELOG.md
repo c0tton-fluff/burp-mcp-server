@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 - Initial release
 - SSE client bridge to Burp Suite MCP extension
 - Auto HTTP/2 detection with 15s timeout and HTTP/1.1 fallback
-- 2KB default body limit with offset support
+- 10KB default body limit with offset support
 - HttpRequestResponse blob unwrapping for clean structured output
 - 7 MCP tools replacing Burp's 14+ verbose tools:
   - `burp_send_request` - Unified HTTP send with auto version detection
