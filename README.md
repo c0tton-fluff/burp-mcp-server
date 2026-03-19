@@ -7,7 +7,7 @@
 
 # burp-mcp-server
 
-MCP server and standalone CLI for [Burp Suite Professional](https://portswigger.net/burp). Gives AI assistants like Claude Code full access to Burp -- send requests, read proxy history, pull scanner findings, stage requests in Repeater/Intruder, and run race condition attacks. All with structured JSON output, body limits, and smart header filtering.
+MCP server and standalone CLI for [Burp Suite Professional](https://portswigger.net/burp). Gives AI assistants like Claude Code full access to Burp - send requests, read proxy history, pull scanner findings, stage requests in Repeater/Intruder, and run race condition attacks. All with structured JSON output, body limits, and smart header filtering.
 
 ## Why This Exists
 
@@ -18,7 +18,7 @@ Burp's built-in MCP extension returns verbose `HttpRequestResponse{...}` blobs w
 | 873KB response blobs | 10KB body limit (configurable per request) |
 | 14+ overlapping tools | 10 clean, deduplicated tools |
 | Separate HTTP/1.1 and HTTP/2 tools | Unified send with auto protocol detection and caching |
-| All headers dumped | Smart filtering -- security-relevant headers only by default |
+| All headers dumped | Smart filtering - security-relevant headers only by default |
 | No batch or race support | Parallel batch send (10 req) and single-packet race attacks (50 req) |
 | Java toString output | Structured JSON: `{statusCode, headers, body, bodySize, truncated}` |
 
