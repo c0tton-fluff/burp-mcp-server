@@ -14,6 +14,10 @@ import (
 // DefaultToolTimeout is the max time for a single Burp tool call.
 const DefaultToolTimeout = 30 * time.Second
 
+// maxConcurrentCalls limits parallel SSE calls to Burp's extension.
+// Prevents overwhelming the single SSE connection under batch workloads.
+const maxConcurrentCalls = 4
+
 // Client wraps the MCP client connection to Burp's SSE endpoint.
 // Automatically reconnects when the SSE connection drops.
 type Client struct {
@@ -23,6 +27,7 @@ type Client struct {
 	generation uint64 // incremented on each reconnection
 	mu         sync.Mutex
 	ctx        context.Context
+	sem        chan struct{} // concurrency limiter for SSE calls
 }
 
 // NewClient creates a new Burp MCP client.
@@ -36,6 +41,7 @@ func NewClient(endpoint string) (*Client, error) {
 	return &Client{
 		endpoint: endpoint,
 		client:   client,
+		sem:      make(chan struct{}, maxConcurrentCalls),
 	}, nil
 }
 
@@ -69,10 +75,10 @@ func (c *Client) reconnectIfNeeded(failedGen uint64) (*mcp.ClientSession, error)
 		return c.session, nil
 	}
 
-	// Close old session
-	if c.session != nil {
-		c.session.Close()
-	}
+	// Keep reference to old session for deferred cleanup.
+	// Don't close it synchronously -- in-flight calls on other goroutines
+	// would get "client is closing" errors and fail unnecessarily.
+	oldSession := c.session
 
 	// Create fresh client and connect
 	impl := &mcp.Implementation{
@@ -92,6 +98,15 @@ func (c *Client) reconnectIfNeeded(failedGen uint64) (*mcp.ClientSession, error)
 	c.session = session
 	c.generation++
 	fmt.Fprintf(os.Stderr, "Reconnected to Burp MCP\n")
+
+	// Close old session after in-flight calls have time to complete
+	if oldSession != nil {
+		go func() {
+			time.Sleep(5 * time.Second)
+			oldSession.Close()
+		}()
+	}
+
 	return session, nil
 }
 
@@ -139,15 +154,26 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]any)
 // Automatically reconnects and retries once on connection errors.
 func (c *Client) CallToolWithTimeout(ctx context.Context, name string, args map[string]any, timeout time.Duration) (string, error) {
 	session, gen := c.sessionAndGen()
-	text, err := callToolOnce(ctx, session, name, args, timeout)
+	text, err := c.callToolThrottled(ctx, session, name, args, timeout)
 	if err != nil && isConnectionError(err) {
 		newSession, reconErr := c.reconnectIfNeeded(gen)
 		if reconErr != nil {
 			return "", fmt.Errorf("call %s: %w (reconnect also failed: %v)", name, err, reconErr)
 		}
-		return callToolOnce(ctx, newSession, name, args, timeout)
+		return c.callToolThrottled(ctx, newSession, name, args, timeout)
 	}
 	return text, err
+}
+
+// callToolThrottled wraps callToolOnce with concurrency limiting.
+func (c *Client) callToolThrottled(ctx context.Context, session *mcp.ClientSession, name string, args map[string]any, timeout time.Duration) (string, error) {
+	select {
+	case c.sem <- struct{}{}:
+		defer func() { <-c.sem }()
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	return callToolOnce(ctx, session, name, args, timeout)
 }
 
 func callToolOnce(ctx context.Context, session *mcp.ClientSession, name string, args map[string]any, timeout time.Duration) (string, error) {

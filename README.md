@@ -1,47 +1,50 @@
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white" alt="Go">
+  <img src="https://img.shields.io/badge/Python-3.6+-3776AB?logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
+  <a href="https://github.com/c0tton-fluff/burp-mcp-server/releases"><img src="https://img.shields.io/github/v/release/c0tton-fluff/burp-mcp-server" alt="Release"></a>
+</p>
+
 # burp-mcp-server
 
-[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white)](https://go.dev)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/c0tton-fluff/burp-mcp-server)](https://github.com/c0tton-fluff/burp-mcp-server/releases)
+MCP server and standalone CLI for [Burp Suite Professional](https://portswigger.net/burp). Gives AI assistants like Claude Code full access to Burp -- send requests, read proxy history, pull scanner findings, stage requests in Repeater/Intruder, and run race condition attacks. All with structured JSON output, body limits, and smart header filtering.
 
-MCP server + standalone CLI for [Burp Suite Professional](https://portswigger.net/burp). Enables AI assistants like Claude Code to send requests, read proxy history, access scanner findings, stage requests in Repeater/Intruder, and run race condition attacks -- with clean structured responses, body limits, and smart header filtering.
+## Why This Exists
 
-## Why
+Burp's built-in MCP extension returns verbose `HttpRequestResponse{...}` blobs with no body limits, separate HTTP/1.1 and HTTP/2 tools, and 14+ tools that burn context tokens. This project replaces all of that:
 
-Burp's native MCP extension returns verbose `HttpRequestResponse{...}` blobs with no body limits, separate HTTP/1.1 and HTTP/2 tools, and 14+ tools that waste context. This replaces all of that with 11 clean tools, 10KB body limits, smart header filtering, protocol caching, batch requests, and structured JSON output.
+| Problem | Solution |
+|---------|----------|
+| 873KB response blobs | 10KB body limit (configurable per request) |
+| 14+ overlapping tools | 10 clean, deduplicated tools |
+| Separate HTTP/1.1 and HTTP/2 tools | Unified send with auto protocol detection and caching |
+| All headers dumped | Smart filtering -- security-relevant headers only by default |
+| No batch or race support | Parallel batch send (10 req) and single-packet race attacks (50 req) |
+| Java toString output | Structured JSON: `{statusCode, headers, body, bodySize, truncated}` |
 
-## Features
+## Two Ways to Use
 
-- **Smart header filtering** -- Returns only security-relevant headers by default (Set-Cookie, CSP, CORS, etc). Use `allHeaders: true` for everything.
-- **Unified HTTP send** -- Auto-detects HTTP/2 with 15s timeout, falls back to HTTP/1.1. Caches protocol per host to skip failed HTTP/2 on repeat requests.
-- **Body limits** -- 10KB default, configurable per request (no more 873KB response blobs)
-- **Headers-only mode** -- `headersOnly: true` skips the body entirely for fast recon/fingerprinting
-- **Batch send** -- Fire up to 10 requests in parallel in a single tool call for IDOR/BAC testing
-- **Clean output** -- `{statusCode, headers, body, bodySize, truncated}` instead of Java toString blobs
-- **Proxy history** -- Lean summaries with optional regex filter, plus fetch full request/response by index
-- **Scanner findings** -- Structured `{name, severity, confidence, url, issueDetail}`
-- **Repeater/Intruder** -- Stage requests for manual follow-up
-- **Race condition attack** -- Last-byte sync across parallel connections with deduplicated output
-- **Local encode/decode** -- URL and Base64 encoding handled locally in Go (no SSE roundtrip)
+```
+MCP Server (for AI assistants)
+  Claude Code  -->  stdio  -->  burp-mcp-server (Go)  -->  SSE  -->  Burp Extension (port 9876)
+
+Standalone CLI (for terminal)
+  Terminal  -->  burp-cli (Python)  -->  Burp Proxy Listener (port 8080)  -->  Proxy History
+```
 
 ---
 
-<details open>
-<summary><h2>MCP Server (for Claude Code / AI assistants)</h2></summary>
+## MCP Server
 
-### Architecture
+### Install
 
-```
-Claude Code  -->  stdio  -->  burp-mcp-server (Go)  -->  SSE  -->  Burp Extension (port 9876)
-```
-
-### Installation
+**One-liner:**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/c0tton-fluff/burp-mcp-server/main/install.sh | bash
 ```
 
-Or download from [Releases](https://github.com/c0tton-fluff/burp-mcp-server/releases).
+**Or** download from [Releases](https://github.com/c0tton-fluff/burp-mcp-server/releases).
 
 <details>
 <summary>Build from source</summary>
@@ -51,19 +54,20 @@ git clone https://github.com/c0tton-fluff/burp-mcp-server.git
 cd burp-mcp-server
 go build -o burp-mcp-server .
 ```
+
 </details>
 
 ### Quick Start
 
-**1. Enable MCP in Burp**
+**1. Enable MCP in Burp Suite**
 
-In Burp Suite: **MCP** tab > toggle **Enabled** (default `127.0.0.1:9876`).
+Burp Suite > **MCP** tab > toggle **Enabled** (default `127.0.0.1:9876`).
 
 Uncheck "Require approval for history access" for pentesting/CTF use.
 
-**2. Configure MCP client**
+**2. Add to your MCP config**
 
-Add to `~/.mcp.json`:
+`~/.mcp.json`:
 
 ```json
 {
@@ -79,7 +83,7 @@ Add to `~/.mcp.json`:
 }
 ```
 
-**3. Use with Claude Code**
+**3. Talk to Claude Code**
 
 ```
 "Send a GET request to https://example.com"
@@ -90,17 +94,17 @@ Add to `~/.mcp.json`:
 "Race the transfer endpoint with 20 requests"
 ```
 
-### Tools Reference
+### Tools
 
 #### HTTP
 
 | Tool | Description |
 |------|-------------|
 | `burp_send_request` | Send HTTP request with auto protocol detection, smart headers, body limit |
-| `burp_batch_send` | Send up to 10 requests in parallel (for IDOR/BAC testing) |
+| `burp_batch_send` | Send up to 10 requests in parallel (IDOR/BAC testing) |
 | `burp_race_request` | Single-packet race condition attack with deduplicated output |
 
-#### Proxy & Scanner
+#### Proxy and Scanner
 
 | Tool | Description |
 |------|-------------|
@@ -115,97 +119,16 @@ Add to `~/.mcp.json`:
 | `burp_create_repeater_tab` | Create named Repeater tab with request |
 | `burp_send_to_intruder` | Send request to Intruder |
 
-#### Encoding
+#### Encoding (local, no Burp roundtrip)
 
 | Tool | Description |
 |------|-------------|
-| `burp_encode` | URL or Base64 encode (local, no Burp roundtrip) |
-| `burp_decode` | URL or Base64 decode (local, no Burp roundtrip) |
-
-<details>
-<summary>Full parameter reference</summary>
-
-#### burp_send_request
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `raw` | string | required | Raw HTTP request including headers and body |
-| `host` | string | from Host header | Target host (overrides Host header) |
-| `port` | int | 443/80 | Target port |
-| `tls` | bool | true | Use HTTPS |
-| `bodyLimit` | int | 10000 | Response body byte limit |
-| `bodyOffset` | int | 0 | Response body byte offset |
-| `allHeaders` | bool | false | Return all headers (default: security-relevant only) |
-| `headersOnly` | bool | false | Return only status + headers, skip body |
-
-#### burp_batch_send
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `requests` | array | required | Array of `{raw, host, port, tls, tag}` objects (max 10) |
-| `bodyLimit` | int | 10000 | Response body limit per response |
-| `allHeaders` | bool | false | Return all headers |
-
-Each request in the array:
-| Field | Type | Description |
-|-------|------|-------------|
-| `raw` | string | Raw HTTP request |
-| `host` | string | Target host |
-| `port` | int | Target port |
-| `tls` | bool | Use HTTPS |
-| `tag` | string | Label to identify this request in results |
-
-#### burp_race_request
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `raw` | string | required | Raw HTTP request including headers and body |
-| `host` | string | from Host header | Target host |
-| `port` | int | 443/80 | Target port |
-| `tls` | bool | true | Use HTTPS |
-| `count` | int | 10 | Number of concurrent requests (max 50) |
-| `bodyLimit` | int | 500 | Response body byte limit per response |
-| `showAll` | bool | false | Return all individual responses instead of deduplicated groups |
-
-#### burp_get_proxy_history
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `count` | int | 10 | Number of entries (max 50) |
-| `offset` | int | 0 | Pagination offset |
-| `regex` | string | | Regex filter for URL/content |
-
-#### burp_get_request
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `index` | int | required | Proxy history index (1-based, from burp_get_proxy_history) |
-| `bodyLimit` | int | 10000 | Response body byte limit |
-| `bodyOffset` | int | 0 | Response body byte offset |
-| `allHeaders` | bool | false | Return all headers |
-
-#### burp_get_scanner_issues
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `count` | int | 10 | Number of issues (max 50) |
-| `offset` | int | 0 | Pagination offset |
-| `detailLimit` | int | 500 | Max chars per issue detail (-1 = unlimited) |
-
-#### burp_create_repeater_tab / burp_send_to_intruder
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `raw` | string | required | Raw HTTP request |
-| `host` | string | required | Target hostname |
-| `port` | int | 443/80 | Target port |
-| `tls` | bool | true | Use HTTPS |
-| `tabName` | string | | Tab name |
-
-#### burp_encode / burp_decode
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `content` | string | Content to encode/decode |
-| `type` | string | `url` or `base64` |
-
-</details>
+| `burp_encode` | URL or Base64 encode |
+| `burp_decode` | URL or Base64 decode |
 
 ### Response Format
 
-Default response (security headers only):
+**Default (security headers only):**
 
 ```json
 {
@@ -220,7 +143,7 @@ Default response (security headers only):
 }
 ```
 
-Headers-only mode (`headersOnly: true`) omits `body` -- useful for recon:
+**Headers-only mode** (`headersOnly: true`) -- useful for recon and fingerprinting:
 
 ```json
 {
@@ -245,21 +168,16 @@ Headers-only mode (`headersOnly: true`) omits `body` -- useful for recon:
 3. Sends the final byte on all connections simultaneously (last-byte sync)
 4. Reads and parses all responses in parallel
 
-This is the same technique Turbo Intruder uses -- but callable directly from Claude Code with no Burp UI interaction.
+Same technique as Turbo Intruder -- but callable directly from Claude Code.
 
 **Features:**
-- Auto-calculates `Content-Length` from actual body (no manual byte counting)
-- Forces HTTP/1.1 via TLS ALPN (avoids HTTP/2 upgrade issues)
+
+- Auto-calculates `Content-Length` from actual body
+- Forces HTTP/1.1 via TLS ALPN (avoids HTTP/2 upgrade)
 - Deduplicates identical responses by default (saves tokens)
 - Returns structured results with per-response body limits
 
-**Example usage with Claude Code:**
-
-```
-"Race the convert-currency endpoint with 20 concurrent requests"
-```
-
-**Default response (deduplicated):**
+**Deduplicated output (default):**
 
 ```json
 {
@@ -290,34 +208,119 @@ Use `showAll: true` to get individual responses instead of groups.
 ```json
 {
   "requests": [
-    {"raw": "GET /api/users/1 HTTP/1.1\r\nHost: target.com\r\nAuthorization: Bearer user_token", "tag": "user-view-own"},
-    {"raw": "GET /api/users/2 HTTP/1.1\r\nHost: target.com\r\nAuthorization: Bearer user_token", "tag": "user-view-other"},
+    {"raw": "GET /api/users/1 HTTP/1.1\r\nHost: target.com\r\nAuthorization: Bearer user_token", "tag": "own-profile"},
+    {"raw": "GET /api/users/2 HTTP/1.1\r\nHost: target.com\r\nAuthorization: Bearer user_token", "tag": "other-profile"},
     {"raw": "GET /api/users/1 HTTP/1.1\r\nHost: target.com", "tag": "no-auth"}
   ]
 }
 ```
 
-Response:
-
 ```json
 {
   "responses": [
-    {"tag": "user-view-own", "statusCode": 200, "body": "{\"id\":1,...}"},
-    {"tag": "user-view-other", "statusCode": 200, "body": "{\"id\":2,...}"},
+    {"tag": "own-profile", "statusCode": 200, "body": "{\"id\":1,...}"},
+    {"tag": "other-profile", "statusCode": 200, "body": "{\"id\":2,...}"},
     {"tag": "no-auth", "statusCode": 401, "body": "{\"error\":\"unauthorized\"}"}
   ],
   "summary": "3 requests, responses: 2x 200, 1x 401"
 }
 ```
 
+<details>
+<summary><strong>Full parameter reference</strong></summary>
+
+#### burp_send_request
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `raw` | string | required | Raw HTTP request including headers and body |
+| `host` | string | from Host header | Target host (overrides Host header) |
+| `port` | int | 443/80 | Target port |
+| `tls` | bool | true | Use HTTPS |
+| `bodyLimit` | int | 10000 | Response body byte limit |
+| `bodyOffset` | int | 0 | Response body byte offset |
+| `allHeaders` | bool | false | Return all headers (default: security-relevant only) |
+| `headersOnly` | bool | false | Return only status + headers, skip body |
+
+#### burp_batch_send
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `requests` | array | required | Array of `{raw, host, port, tls, tag}` objects (max 10) |
+| `bodyLimit` | int | 10000 | Response body limit per response |
+| `allHeaders` | bool | false | Return all headers |
+
+Each request in the array:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `raw` | string | Raw HTTP request |
+| `host` | string | Target host |
+| `port` | int | Target port |
+| `tls` | bool | Use HTTPS |
+| `tag` | string | Label to identify this request in results |
+
+#### burp_race_request
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `raw` | string | required | Raw HTTP request including headers and body |
+| `host` | string | from Host header | Target host |
+| `port` | int | 443/80 | Target port |
+| `tls` | bool | true | Use HTTPS |
+| `count` | int | 10 | Number of concurrent requests (max 50) |
+| `bodyLimit` | int | 500 | Response body byte limit per response |
+| `showAll` | bool | false | Return all individual responses instead of deduplicated groups |
+
+#### burp_get_proxy_history
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `count` | int | 10 | Number of entries (max 50) |
+| `offset` | int | 0 | Pagination offset |
+| `regex` | string | | Regex filter for URL/content |
+
+#### burp_get_request
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `index` | int | required | Proxy history index (1-based, from burp_get_proxy_history) |
+| `bodyLimit` | int | 10000 | Response body byte limit |
+| `bodyOffset` | int | 0 | Response body byte offset |
+| `allHeaders` | bool | false | Return all headers |
+
+#### burp_get_scanner_issues
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `count` | int | 10 | Number of issues (max 50) |
+| `offset` | int | 0 | Pagination offset |
+| `detailLimit` | int | 500 | Max chars per issue detail (-1 = unlimited) |
+
+#### burp_create_repeater_tab / burp_send_to_intruder
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `raw` | string | required | Raw HTTP request |
+| `host` | string | required | Target hostname |
+| `port` | int | 443/80 | Target port |
+| `tls` | bool | true | Use HTTPS |
+| `tabName` | string | | Tab name |
+
+#### burp_encode / burp_decode
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `content` | string | Content to encode/decode |
+| `type` | string | `url` or `base64` |
+
 </details>
 
 ---
 
-<details>
-<summary><h2>Standalone CLI (for terminal use)</h2></summary>
+## Standalone CLI
 
-Standalone command-line client for Burp Suite. No MCP required -- sends requests through Burp's proxy listener so they appear in Proxy > HTTP History. Zero dependencies beyond Python stdlib.
+Command-line client for Burp Suite. No MCP required -- sends requests through Burp's proxy listener so they appear in Proxy > HTTP History. Zero dependencies beyond Python stdlib.
 
 ### Install
 
@@ -325,73 +328,72 @@ Standalone command-line client for Burp Suite. No MCP required -- sends requests
 curl -fsSL https://raw.githubusercontent.com/c0tton-fluff/burp-mcp-server/main/install.sh | TOOL=cli bash
 ```
 
-Or download from [Releases](https://github.com/c0tton-fluff/burp-mcp-server/releases).
+**Or** download from [Releases](https://github.com/c0tton-fluff/burp-mcp-server/releases).
 
 ### Usage
 
 Requires Burp Suite running with proxy listener on `127.0.0.1:8080` (default).
 
 ```bash
-# Send a structured request (proxied through Burp)
+# Structured requests (proxied through Burp)
 burp send GET https://target.com/api/users
 burp send POST https://target.com/api/login -j '{"user":"admin","pass":"test"}'
 burp send PUT https://target.com/api/profile -H "Authorization: Bearer tok" -j '{"role":"admin"}'
 
-# Send a raw HTTP request
+# Raw HTTP requests
 burp raw -f request.txt target.com
 echo -e 'GET / HTTP/1.1\r\nHost: example.com\r\n\r\n' | burp raw
 
 # Race condition attack (last-byte sync, direct -- bypasses proxy)
 burp race target.com -f transfer.txt -n 20
 
-# Skip proxy, send direct
+# Direct mode (skip proxy)
 burp send GET https://target.com/api/health --direct
 
-# Encode/decode
+# Encode / decode
 burp encode base64 "hello world"
 burp decode url "%3Cscript%3E"
 burp encode hex "test"
 ```
 
-### CLI Commands
+### Commands
 
 | Command | Description |
 |---------|-------------|
 | `send METHOD URL` | Send structured HTTP request through Burp proxy |
 | `raw [HOST]` | Send raw HTTP request from file or stdin |
 | `race [HOST]` | Single-packet last-byte sync race condition attack (direct) |
-| `encode TYPE VALUE` | Encode value (url, base64, hex) |
-| `decode TYPE VALUE` | Decode value (url, base64, hex) |
+| `encode TYPE VALUE` | Encode value (`url`, `base64`, `hex`) |
+| `decode TYPE VALUE` | Decode value (`url`, `base64`, `hex`) |
 
-### Global Flags
+### Flags
 
 | Flag | Description |
 |------|-------------|
-| `--proxy` | Burp proxy address (default `127.0.0.1:8080`, or set `BURP_PROXY`) |
+| `--proxy` | Burp proxy address (default `127.0.0.1:8080`, or `BURP_PROXY` env var) |
 | `--direct` | Skip proxy, connect directly to target |
 | `--all-headers` | Return all response headers (default: security-relevant only) |
 | `-b, --body-limit` | Response body byte limit (default 10000) |
 | `-t, --timeout` | Request timeout in seconds (default 30) |
 
-</details>
-
 ---
 
 ## Troubleshooting
 
-| Error | Fix |
-|-------|-----|
-| Tools not appearing | Verify binary path in `~/.mcp.json`, restart Claude Code |
-| Connection refused (MCP) | Ensure Burp is running with MCP enabled on port 9876 |
-| Connection refused (CLI) | Ensure Burp proxy listener is on port 8080 |
-| Request hangs | HTTP/2 timeout + fallback handles this automatically (15s first time, cached after) |
+| Symptom | Fix |
+|---------|-----|
+| Tools not appearing in Claude Code | Verify binary path in `~/.mcp.json`, restart Claude Code |
+| Connection refused on port 9876 | Ensure Burp is running with MCP enabled |
+| Connection refused on port 8080 | Ensure Burp proxy listener is active |
+| Request hangs on first send | HTTP/2 timeout + fallback handles this (15s first time, cached after) |
 | Empty proxy history | Only shows browser-proxied traffic, not MCP `send_request` calls |
+| Orphaned server process | Built-in parent PID watchdog auto-terminates when Claude Code exits |
 
-Check MCP logs: `~/.cache/claude-cli-nodejs/*/mcp-logs-burp/`
+MCP logs: `~/.cache/claude-cli-nodejs/*/mcp-logs-burp/`
 
 ## Prerequisites
 
-- Burp Suite Professional (Community has limited MCP support)
+- [Burp Suite Professional](https://portswigger.net/burp) (Community edition has limited MCP support)
 - Burp MCP Server extension from BApp Store
 - Burp running with MCP enabled before starting Claude Code
 
