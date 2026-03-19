@@ -26,6 +26,6 @@ jobs:
         run: go vet ./...
 
       - name: Staticcheck
-        uses: dominikh/staticcheck-action@v1
+        uses: dominikh/staticcheck-action@fe1dd0c3658873b46f8c9bb3291096a617c9571e # v1.3.0
         with:
-          version: "latest"
+          version: "2024.1.1"

@@ -344,10 +344,12 @@ func readHTTPResponse(reader *bufio.Reader) (string, error) {
 	}
 
 	// Read body
+	// Read body. On partial read errors we return what we have (nil error)
+	// so callers always get usable data even from interrupted connections.
 	if chunked {
 		body, err := readChunkedBody(reader)
 		if err != nil {
-			return response.String(), nil // Return what we have
+			return response.String(), nil
 		}
 		response.WriteString(body)
 	} else if contentLength > 0 {
@@ -362,14 +364,15 @@ func readHTTPResponse(reader *bufio.Reader) (string, error) {
 		}
 		response.Write(body[:n])
 	}
-	// If contentLength == 0 or -1 with no chunked, no body to read
 
 	return response.String(), nil
 }
 
 // readChunkedBody reads a chunked transfer-encoded body.
+// Caps total bytes read at maxReadBody to prevent OOM from malicious servers.
 func readChunkedBody(reader *bufio.Reader) (string, error) {
 	var body strings.Builder
+	var totalRead int64
 	for {
 		sizeLine, err := reader.ReadString('\n')
 		if err != nil {
@@ -388,9 +391,21 @@ func readChunkedBody(reader *bufio.Reader) (string, error) {
 			break
 		}
 
+		// Cap individual chunk and cumulative total
+		if size > int64(maxReadBody) {
+			size = int64(maxReadBody)
+		}
+		if totalRead+size > int64(maxReadBody) {
+			size = int64(maxReadBody) - totalRead
+		}
+		if size <= 0 {
+			break
+		}
+
 		chunk := make([]byte, size)
 		n, err := readFull(reader, chunk)
 		body.Write(chunk[:n])
+		totalRead += int64(n)
 		if err != nil {
 			return body.String(), err
 		}
