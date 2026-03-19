@@ -7,7 +7,10 @@
 set -e
 
 REPO="c0tton-fluff/burp-mcp-server"
-VERSION="v1.1.0"
+VERSION="${VERSION:-$(curl -fsSL "https://api.github.com/repos/c0tton-fluff/burp-mcp-server/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)}"
+if [ -z "$VERSION" ]; then
+    echo "Error: could not determine latest version"; exit 1
+fi
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 TOOL="${TOOL:-mcp}"
 

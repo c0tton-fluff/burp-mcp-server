@@ -20,7 +20,7 @@ type EncodeOutput struct {
 	Encoded string `json:"encoded"`
 }
 
-func encodeHandler(_ *mcp.ClientSession) func(context.Context, *mcp.CallToolRequest, EncodeInput) (*mcp.CallToolResult, EncodeOutput, error) {
+func encodeHandler() func(context.Context, *mcp.CallToolRequest, EncodeInput) (*mcp.CallToolResult, EncodeOutput, error) {
 	return func(_ context.Context, _ *mcp.CallToolRequest, input EncodeInput) (*mcp.CallToolResult, EncodeOutput, error) {
 		if input.Content == "" {
 			return nil, EncodeOutput{}, fmt.Errorf("content is required")
@@ -51,7 +51,7 @@ type DecodeOutput struct {
 	Decoded string `json:"decoded"`
 }
 
-func decodeHandler(_ *mcp.ClientSession) func(context.Context, *mcp.CallToolRequest, DecodeInput) (*mcp.CallToolResult, DecodeOutput, error) {
+func decodeHandler() func(context.Context, *mcp.CallToolRequest, DecodeInput) (*mcp.CallToolResult, DecodeOutput, error) {
 	return func(_ context.Context, _ *mcp.CallToolRequest, input DecodeInput) (*mcp.CallToolResult, DecodeOutput, error) {
 		if input.Content == "" {
 			return nil, DecodeOutput{}, fmt.Errorf("content is required")
@@ -84,17 +84,17 @@ func decodeHandler(_ *mcp.ClientSession) func(context.Context, *mcp.CallToolRequ
 }
 
 // RegisterEncodeTool registers the burp_encode tool.
-func RegisterEncodeTool(server *mcp.Server, session *mcp.ClientSession) {
+func RegisterEncodeTool(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "burp_encode",
 		Description: `Encode content locally. Params: content, type (url|base64). Returns {encoded}.`,
-	}, encodeHandler(session))
+	}, encodeHandler())
 }
 
 // RegisterDecodeTool registers the burp_decode tool.
-func RegisterDecodeTool(server *mcp.Server, session *mcp.ClientSession) {
+func RegisterDecodeTool(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "burp_decode",
 		Description: `Decode content locally. Params: content, type (url|base64). Returns {decoded}.`,
-	}, decodeHandler(session))
+	}, decodeHandler())
 }

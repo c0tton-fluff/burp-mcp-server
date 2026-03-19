@@ -10,11 +10,8 @@ import (
 
 // GetScannerIssuesInput is the input for burp_get_scanner_issues.
 type GetScannerIssuesInput struct {
-	// Number of issues to return
-	Count int `json:"count,omitempty" jsonschema:"Number of issues to return (default 10)"`
-	// Offset for pagination
-	Offset int `json:"offset,omitempty" jsonschema:"Offset for pagination (default 0)"`
-	// Max characters per issue detail field (default 500, -1 = unlimited)
+	Count       int `json:"count,omitempty" jsonschema:"Number of issues to return (default 10)"`
+	Offset      int `json:"offset,omitempty" jsonschema:"Offset for pagination (default 0)"`
 	DetailLimit int `json:"detailLimit,omitempty" jsonschema:"Max characters per issue detail (default 500, -1 = unlimited)"`
 }
 
@@ -24,8 +21,8 @@ type GetScannerIssuesOutput struct {
 	Count  int                 `json:"count"`
 }
 
-func getScannerIssuesHandler(session *mcp.ClientSession) func(context.Context, *mcp.CallToolRequest, GetScannerIssuesInput) (*mcp.CallToolResult, GetScannerIssuesOutput, error) {
-	return func(ctx context.Context, req *mcp.CallToolRequest, input GetScannerIssuesInput) (*mcp.CallToolResult, GetScannerIssuesOutput, error) {
+func getScannerIssuesHandler(client *burp.Client) func(context.Context, *mcp.CallToolRequest, GetScannerIssuesInput) (*mcp.CallToolResult, GetScannerIssuesOutput, error) {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input GetScannerIssuesInput) (*mcp.CallToolResult, GetScannerIssuesOutput, error) {
 		count := input.Count
 		if count <= 0 {
 			count = 10
@@ -39,12 +36,11 @@ func getScannerIssuesHandler(session *mcp.ClientSession) func(context.Context, *
 			"offset": input.Offset,
 		}
 
-		raw, err := burp.CallTool(ctx, session, "get_scanner_issues", args)
+		raw, err := client.CallTool(ctx, "get_scanner_issues", args)
 		if err != nil {
 			return nil, GetScannerIssuesOutput{}, fmt.Errorf("failed to get scanner issues: %w", err)
 		}
 
-		// DetailLimit: default 500, -1 = unlimited (0 treated as default since it's the zero value)
 		detailLimit := input.DetailLimit
 		if detailLimit == 0 {
 			detailLimit = 500
@@ -67,9 +63,9 @@ func getScannerIssuesHandler(session *mcp.ClientSession) func(context.Context, *
 }
 
 // RegisterGetScannerIssuesTool registers the burp_get_scanner_issues tool.
-func RegisterGetScannerIssuesTool(server *mcp.Server, session *mcp.ClientSession) {
+func RegisterGetScannerIssuesTool(server *mcp.Server, client *burp.Client) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "burp_get_scanner_issues",
 		Description: `Get scanner findings. Returns structured issues: {name, severity, confidence, url, issueDetail}.`,
-	}, getScannerIssuesHandler(session))
+	}, getScannerIssuesHandler(client))
 }

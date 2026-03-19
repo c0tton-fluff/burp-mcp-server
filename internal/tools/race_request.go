@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
@@ -63,47 +62,17 @@ type RaceRequestOutput struct {
 	Summary string              `json:"summary"`
 }
 
-func raceRequestHandler(_ *mcp.ClientSession) func(context.Context, *mcp.CallToolRequest, RaceRequestInput) (*mcp.CallToolResult, RaceRequestOutput, error) {
+func raceRequestHandler() func(context.Context, *mcp.CallToolRequest, RaceRequestInput) (*mcp.CallToolResult, RaceRequestOutput, error) {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input RaceRequestInput) (*mcp.CallToolResult, RaceRequestOutput, error) {
-		if input.Raw == "" {
-			return nil, RaceRequestOutput{}, fmt.Errorf("raw HTTP request is required")
+		if err := validateRawRequest(input.Raw); err != nil {
+			return nil, RaceRequestOutput{}, err
 		}
 
 		parsed := burp.ParseRawRequest(input.Raw)
 
-		// Determine host
-		host := input.Host
-		if host == "" {
-			host = parsed.Host
-		}
-		if host == "" {
-			return nil, RaceRequestOutput{}, fmt.Errorf("host is required (provide in input or Host header)")
-		}
-
-		// Parse host:port
-		if h, p, err := net.SplitHostPort(host); err == nil {
-			host = h
-			if input.Port == 0 {
-				if pn, err := strconv.Atoi(p); err == nil {
-					input.Port = pn
-				}
-			}
-		}
-
-		// Determine TLS
-		useTLS := true
-		if input.TLS != nil {
-			useTLS = *input.TLS
-		}
-
-		// Determine port
-		port := input.Port
-		if port == 0 {
-			if useTLS {
-				port = 443
-			} else {
-				port = 80
-			}
+		t, err := resolveTarget(input.Host, input.Port, input.TLS, parsed.Host)
+		if err != nil {
+			return nil, RaceRequestOutput{}, err
 		}
 
 		// Count defaults and bounds
@@ -127,7 +96,7 @@ func raceRequestHandler(_ *mcp.ClientSession) func(context.Context, *mcp.CallToo
 		rawBytes := []byte(rawNorm)
 
 		// Execute the single-packet race attack
-		results, err := executeRace(ctx, host, port, useTLS, rawBytes, count, bodyLimit)
+		results, err := executeRace(ctx, t.Host, t.Port, t.UseTLS, rawBytes, count, bodyLimit)
 		if err != nil {
 			return nil, RaceRequestOutput{}, fmt.Errorf("race attack failed: %w", err)
 		}
@@ -326,6 +295,10 @@ func dialConn(ctx context.Context, addr, host string, useTLS bool, deadline time
 	return tlsConn, nil
 }
 
+// maxReadBody caps how many body bytes readHTTPResponse will allocate.
+// Prevents OOM when a server advertises a huge Content-Length.
+const maxReadBody = 1 << 20 // 1 MB
+
 // readHTTPResponse reads a single HTTP response from the buffered reader.
 // Handles both Content-Length and chunked transfer encoding.
 func readHTTPResponse(reader *bufio.Reader) (string, error) {
@@ -378,7 +351,11 @@ func readHTTPResponse(reader *bufio.Reader) (string, error) {
 		}
 		response.WriteString(body)
 	} else if contentLength > 0 {
-		body := make([]byte, contentLength)
+		readSize := contentLength
+		if readSize > maxReadBody {
+			readSize = maxReadBody
+		}
+		body := make([]byte, readSize)
 		n, err := readFull(reader, body)
 		if err != nil && n == 0 {
 			return response.String(), nil
@@ -504,17 +481,12 @@ func dedupeRaceResults(results []RaceResponseEntry) []RaceGroupEntry {
 }
 
 // RegisterRaceRequestTool registers the burp_race_request tool.
-func RegisterRaceRequestTool(server *mcp.Server, session *mcp.ClientSession) {
+func RegisterRaceRequestTool(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "burp_race_request",
 		Description: `Single-packet race condition attack. Sends N identical requests simultaneously. ` +
 			`Returns deduplicated {groups: [{statusCode, body, count, indices}], summary}. ` +
 			`Default: 10 requests, 500B body limit. Use showAll=true for individual responses.`,
-	}, raceRequestHandler(session))
+	}, raceRequestHandler())
 }
 
-// MarshalJSON for RaceRequestOutput to produce clean tool output.
-func (o RaceRequestOutput) MarshalJSON() ([]byte, error) {
-	type Alias RaceRequestOutput
-	return json.Marshal(Alias(o))
-}

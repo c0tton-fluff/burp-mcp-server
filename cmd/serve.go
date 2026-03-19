@@ -66,12 +66,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create Burp client: %w", err)
 	}
 
-	session, err := burpClient.Connect(ctx)
+	_, err = burpClient.Connect(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to connect to Burp MCP: %w", err)
 	}
 	defer burpClient.Close()
-	burp.SetGlobalClient(burpClient)
 	fmt.Fprintf(os.Stderr, "Connected to Burp MCP\n")
 
 	// Create MCP server for Claude Code
@@ -84,16 +83,16 @@ func runServe(cmd *cobra.Command, args []string) error {
 	)
 
 	// Register tools
-	tools.RegisterSendRequestTool(server, session)
-	tools.RegisterBatchSendTool(server, session)
-	tools.RegisterGetProxyHistoryTool(server, session)
-	tools.RegisterGetRequestTool(server, session)
-	tools.RegisterGetScannerIssuesTool(server, session)
-	tools.RegisterCreateRepeaterTabTool(server, session)
-	tools.RegisterSendToIntruderTool(server, session)
-	tools.RegisterEncodeTool(server, session)
-	tools.RegisterDecodeTool(server, session)
-	tools.RegisterRaceRequestTool(server, session)
+	tools.RegisterSendRequestTool(server, burpClient)
+	tools.RegisterBatchSendTool(server, burpClient)
+	tools.RegisterGetProxyHistoryTool(server, burpClient)
+	tools.RegisterGetRequestTool(server, burpClient)
+	tools.RegisterGetScannerIssuesTool(server, burpClient)
+	tools.RegisterCreateRepeaterTabTool(server, burpClient)
+	tools.RegisterSendToIntruderTool(server, burpClient)
+	tools.RegisterEncodeTool(server)
+	tools.RegisterDecodeTool(server)
+	tools.RegisterRaceRequestTool(server)
 
 	// Run the server with stdio transport
 	fmt.Fprintf(os.Stderr, "Burp MCP server ready (stdio)\n")

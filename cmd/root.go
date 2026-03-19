@@ -7,7 +7,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const version = "1.0.0"
+// version is set at build time via -ldflags "-X github.com/c0tton-fluff/burp-mcp-server/cmd.version=VERSION"
+var version = "dev"
 
 var rootCmd = &cobra.Command{
 	Use:     "burp-mcp-server",

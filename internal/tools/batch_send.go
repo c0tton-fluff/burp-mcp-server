@@ -3,8 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"net"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -47,7 +45,7 @@ type BatchSendOutput struct {
 	Summary   string               `json:"summary"`
 }
 
-func batchSendHandler(session *mcp.ClientSession) func(context.Context, *mcp.CallToolRequest, BatchSendInput) (*mcp.CallToolResult, BatchSendOutput, error) {
+func batchSendHandler(client *burp.Client) func(context.Context, *mcp.CallToolRequest, BatchSendInput) (*mcp.CallToolResult, BatchSendOutput, error) {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input BatchSendInput) (*mcp.CallToolResult, BatchSendOutput, error) {
 		if len(input.Requests) == 0 {
 			return nil, BatchSendOutput{}, fmt.Errorf("requests array is required")
@@ -69,13 +67,12 @@ func batchSendHandler(session *mcp.ClientSession) func(context.Context, *mcp.Cal
 			go func(idx int, r BatchRequest) {
 				defer wg.Done()
 				responses[idx] = executeSingleRequest(
-					ctx, session, r, bodyLimit, input.AllHeaders,
+					ctx, client, r, bodyLimit, input.AllHeaders,
 				)
 			}(i, req)
 		}
 		wg.Wait()
 
-		// Build summary
 		statusCounts := make(map[int]int)
 		errCount := 0
 		for _, r := range responses {
@@ -106,88 +103,31 @@ func batchSendHandler(session *mcp.ClientSession) func(context.Context, *mcp.Cal
 
 func executeSingleRequest(
 	ctx context.Context,
-	session *mcp.ClientSession,
+	client *burp.Client,
 	req BatchRequest,
 	bodyLimit int,
 	allHeaders bool,
 ) BatchResponseEntry {
 	entry := BatchResponseEntry{Tag: req.Tag}
 
-	if req.Raw == "" {
-		entry.Error = "raw is required"
+	if err := validateRawRequest(req.Raw); err != nil {
+		entry.Error = err.Error()
 		return entry
 	}
 
 	parsed := burp.ParseRawRequest(req.Raw)
 
-	host := req.Host
-	if host == "" {
-		host = parsed.Host
-	}
-	if host == "" {
-		entry.Error = "host is required"
+	t, err := resolveTarget(req.Host, req.Port, req.TLS, parsed.Host)
+	if err != nil {
+		entry.Error = err.Error()
 		return entry
 	}
 
-	if h, p, err := net.SplitHostPort(host); err == nil {
-		host = h
-		if req.Port == 0 {
-			if pn, err := strconv.Atoi(p); err == nil {
-				req.Port = pn
-			}
-		}
-	}
-
-	useTLS := true
-	if req.TLS != nil {
-		useTLS = *req.TLS
-	}
-
-	port := req.Port
-	if port == 0 {
-		if useTLS {
-			port = 443
-		} else {
-			port = 80
-		}
-	}
-
 	rawNorm := normalizeRawRequest(req.Raw)
-
-	var responseText string
-	var err error
-
-	if isHTTP1Only(host) {
-		responseText, err = tryHTTP1(ctx, session, rawNorm, host, port, useTLS)
-		if err != nil {
-			entry.Error = err.Error()
-			return entry
-		}
-		responseText = burp.UnwrapResponse(responseText)
-	} else {
-		responseText, err = tryHTTP2(ctx, session, parsed, host, port, useTLS)
-		if err != nil {
-			markHTTP1Only(host)
-			responseText, err = tryHTTP1(ctx, session, rawNorm, host, port, useTLS)
-			if err != nil {
-				entry.Error = err.Error()
-				return entry
-			}
-		}
-		responseText = burp.UnwrapResponse(responseText)
-
-		needsFallback := strings.TrimSpace(responseText) == ""
-		if !needsFallback && strings.HasPrefix(responseText, "HTTP/") {
-			p := strings.SplitN(responseText, " ", 3)
-			needsFallback = len(p) >= 2 && p[1] == "502"
-		}
-		if needsFallback {
-			markHTTP1Only(host)
-			fb, fbErr := tryHTTP1(ctx, session, rawNorm, host, port, useTLS)
-			if fbErr == nil {
-				responseText = burp.UnwrapResponse(fb)
-			}
-		}
+	responseText, err := sendWithFallback(ctx, client, rawNorm, parsed, t)
+	if err != nil {
+		entry.Error = err.Error()
+		return entry
 	}
 
 	resp := burp.ParseHTTPResponse(responseText, 0, bodyLimit)
@@ -211,11 +151,11 @@ func executeSingleRequest(
 }
 
 // RegisterBatchSendTool registers the burp_batch_send tool.
-func RegisterBatchSendTool(server *mcp.Server, session *mcp.ClientSession) {
+func RegisterBatchSendTool(server *mcp.Server, client *burp.Client) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "burp_batch_send",
 		Description: `Send multiple HTTP requests in parallel. Max 10. ` +
 			`Input: {requests: [{raw, host, port, tls, tag}], bodyLimit, allHeaders}. ` +
 			`Returns {responses: [{tag, statusCode, headers, body}], summary}. For IDOR/BAC testing.`,
-	}, batchSendHandler(session))
+	}, batchSendHandler(client))
 }

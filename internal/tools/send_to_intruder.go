@@ -10,15 +10,10 @@ import (
 
 // SendToIntruderInput is the input for burp_send_to_intruder.
 type SendToIntruderInput struct {
-	// Raw HTTP request
-	Raw string `json:"raw" jsonschema:"required,Raw HTTP request"`
-	// Target host
-	Host string `json:"host" jsonschema:"required,Target hostname"`
-	// Target port
-	Port int `json:"port,omitempty" jsonschema:"Target port (default based on TLS)"`
-	// Use HTTPS
-	TLS *bool `json:"tls,omitempty" jsonschema:"Use HTTPS (default true)"`
-	// Tab name
+	Raw     string `json:"raw" jsonschema:"required,Raw HTTP request"`
+	Host    string `json:"host" jsonschema:"required,Target hostname"`
+	Port    int    `json:"port,omitempty" jsonschema:"Target port (default based on TLS)"`
+	TLS     *bool  `json:"tls,omitempty" jsonschema:"Use HTTPS (default true)"`
 	TabName string `json:"tabName,omitempty" jsonschema:"Intruder tab name"`
 }
 
@@ -27,40 +22,30 @@ type SendToIntruderOutput struct {
 	Message string `json:"message"`
 }
 
-func sendToIntruderHandler(session *mcp.ClientSession) func(context.Context, *mcp.CallToolRequest, SendToIntruderInput) (*mcp.CallToolResult, SendToIntruderOutput, error) {
-	return func(ctx context.Context, req *mcp.CallToolRequest, input SendToIntruderInput) (*mcp.CallToolResult, SendToIntruderOutput, error) {
-		if input.Raw == "" {
-			return nil, SendToIntruderOutput{}, fmt.Errorf("raw HTTP request is required")
+func sendToIntruderHandler(client *burp.Client) func(context.Context, *mcp.CallToolRequest, SendToIntruderInput) (*mcp.CallToolResult, SendToIntruderOutput, error) {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input SendToIntruderInput) (*mcp.CallToolResult, SendToIntruderOutput, error) {
+		if err := validateRawRequest(input.Raw); err != nil {
+			return nil, SendToIntruderOutput{}, err
 		}
 
-		useTLS := true
-		if input.TLS != nil {
-			useTLS = *input.TLS
+		t, err := resolveTarget(input.Host, input.Port, input.TLS, "")
+		if err != nil {
+			return nil, SendToIntruderOutput{}, err
 		}
 
-		port := input.Port
-		if port == 0 {
-			if useTLS {
-				port = 443
-			} else {
-				port = 80
-			}
-		}
-
-		// Normalize line endings
 		rawNorm := normalizeRawRequest(input.Raw)
 
 		args := map[string]any{
 			"content":        rawNorm,
-			"targetHostname": input.Host,
-			"targetPort":     port,
-			"usesHttps":      useTLS,
+			"targetHostname": t.Host,
+			"targetPort":     t.Port,
+			"usesHttps":      t.UseTLS,
 		}
 		if input.TabName != "" {
 			args["tabName"] = input.TabName
 		}
 
-		_, err := burp.CallTool(ctx, session, "send_to_intruder", args)
+		_, err = client.CallTool(ctx, "send_to_intruder", args)
 		if err != nil {
 			return nil, SendToIntruderOutput{}, fmt.Errorf("failed to send to intruder: %w", err)
 		}
@@ -71,15 +56,15 @@ func sendToIntruderHandler(session *mcp.ClientSession) func(context.Context, *mc
 		}
 
 		return nil, SendToIntruderOutput{
-			Message: fmt.Sprintf("Sent to Intruder tab '%s' for %s:%d", tabDesc, input.Host, port),
+			Message: fmt.Sprintf("Sent to Intruder tab '%s' for %s:%d", tabDesc, t.Host, t.Port),
 		}, nil
 	}
 }
 
 // RegisterSendToIntruderTool registers the burp_send_to_intruder tool.
-func RegisterSendToIntruderTool(server *mcp.Server, session *mcp.ClientSession) {
+func RegisterSendToIntruderTool(server *mcp.Server, client *burp.Client) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "burp_send_to_intruder",
 		Description: `Send HTTP request to Intruder. Params: raw (request), host, port, tls, tabName.`,
-	}, sendToIntruderHandler(session))
+	}, sendToIntruderHandler(client))
 }

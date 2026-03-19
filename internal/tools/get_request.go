@@ -10,13 +10,9 @@ import (
 
 // GetRequestInput is the input for burp_get_request.
 type GetRequestInput struct {
-	// Proxy history index (1-based, from burp_get_proxy_history)
-	Index int `json:"index" jsonschema:"required,Proxy history index (1-based)"`
-	// Response body limit (default 10000)
-	BodyLimit int `json:"bodyLimit,omitempty" jsonschema:"Response body byte limit (default 10000)"`
-	// Response body offset
-	BodyOffset int `json:"bodyOffset,omitempty" jsonschema:"Response body byte offset"`
-	// Return all headers (default: security-relevant only)
+	Index      int  `json:"index" jsonschema:"required,Proxy history index (1-based)"`
+	BodyLimit  int  `json:"bodyLimit,omitempty" jsonschema:"Response body byte limit (default 10000)"`
+	BodyOffset int  `json:"bodyOffset,omitempty" jsonschema:"Response body byte offset"`
 	AllHeaders bool `json:"allHeaders,omitempty" jsonschema:"Return all headers (default: security-relevant only)"`
 }
 
@@ -28,11 +24,11 @@ type GetRequestOutput struct {
 
 // RequestSummary is the request portion.
 type RequestSummary struct {
-	Method  string            `json:"method"`
-	Path    string            `json:"path"`
-	Host    string            `json:"host,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Body    string            `json:"body,omitempty"`
+	Method  string              `json:"method"`
+	Path    string              `json:"path"`
+	Host    string              `json:"host,omitempty"`
+	Headers map[string][]string `json:"headers,omitempty"`
+	Body    string              `json:"body,omitempty"`
 }
 
 // ResponseSummary is the response portion.
@@ -44,7 +40,7 @@ type ResponseSummary struct {
 	Truncated  bool           `json:"truncated,omitempty"`
 }
 
-func getRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.CallToolRequest, GetRequestInput) (*mcp.CallToolResult, GetRequestOutput, error) {
+func getRequestHandler(client *burp.Client) func(context.Context, *mcp.CallToolRequest, GetRequestInput) (*mcp.CallToolResult, GetRequestOutput, error) {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input GetRequestInput) (*mcp.CallToolResult, GetRequestOutput, error) {
 		if input.Index < 1 {
 			return nil, GetRequestOutput{}, fmt.Errorf("index must be >= 1")
@@ -55,13 +51,12 @@ func getRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.Ca
 			bodyLimit = defaultBodyLimit
 		}
 
-		// Fetch single entry: offset is 0-based, index is 1-based
 		args := map[string]any{
 			"count":  1,
 			"offset": input.Index - 1,
 		}
 
-		raw, err := burp.CallTool(ctx, session, "get_proxy_http_history", args)
+		raw, err := client.CallTool(ctx, "get_proxy_http_history", args)
 		if err != nil {
 			return nil, GetRequestOutput{}, fmt.Errorf("failed to get request: %w", err)
 		}
@@ -70,7 +65,6 @@ func getRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.Ca
 			return nil, GetRequestOutput{}, fmt.Errorf("no entry at index %d", input.Index)
 		}
 
-		// Extract request and response (handles both JSON and wrapper formats)
 		reqRaw, respRaw := burp.ExtractRequestResponse(raw)
 		parsedReq := burp.ParseRawRequest(reqRaw)
 
@@ -82,7 +76,6 @@ func getRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.Ca
 			Body:    parsedReq.Body,
 		}
 
-		// Parse the response part
 		parsedResp := burp.ParseHTTPResponse(respRaw, input.BodyOffset, bodyLimit)
 
 		var respSummary ResponseSummary
@@ -108,10 +101,10 @@ func getRequestHandler(session *mcp.ClientSession) func(context.Context, *mcp.Ca
 }
 
 // RegisterGetRequestTool registers the burp_get_request tool.
-func RegisterGetRequestTool(server *mcp.Server, session *mcp.ClientSession) {
+func RegisterGetRequestTool(server *mcp.Server, client *burp.Client) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "burp_get_request",
 		Description: `Get full request+response from proxy history by index. ` +
 			`Returns {request: {method, path, host, headers, body}, response: {statusCode, headers, body, bodySize}}.`,
-	}, getRequestHandler(session))
+	}, getRequestHandler(client))
 }

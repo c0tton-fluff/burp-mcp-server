@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/c0tton-fluff/burp-mcp-server/internal/burp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -10,9 +11,7 @@ import (
 
 // GetProxyHistoryInput is the input for burp_get_proxy_history.
 type GetProxyHistoryInput struct {
-	// Number of entries to return
-	Count int `json:"count,omitempty" jsonschema:"Number of entries to return (default 10)"`
-	// Offset for pagination
+	Count  int `json:"count,omitempty" jsonschema:"Number of entries to return (default 10)"`
 	Offset int `json:"offset,omitempty" jsonschema:"Offset for pagination (default 0)"`
 }
 
@@ -30,8 +29,11 @@ type GetProxyHistoryOutput struct {
 	Count   int                   `json:"count"`
 }
 
-func getProxyHistoryHandler(session *mcp.ClientSession) func(context.Context, *mcp.CallToolRequest, GetProxyHistoryInput) (*mcp.CallToolResult, GetProxyHistoryOutput, error) {
-	return func(ctx context.Context, req *mcp.CallToolRequest, input GetProxyHistoryInput) (*mcp.CallToolResult, GetProxyHistoryOutput, error) {
+// fetchConcurrency controls how many proxy history entries are fetched in parallel.
+const fetchConcurrency = 5
+
+func getProxyHistoryHandler(client *burp.Client) func(context.Context, *mcp.CallToolRequest, GetProxyHistoryInput) (*mcp.CallToolResult, GetProxyHistoryOutput, error) {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input GetProxyHistoryInput) (*mcp.CallToolResult, GetProxyHistoryOutput, error) {
 		count := input.Count
 		if count <= 0 {
 			count = 10
@@ -40,38 +42,67 @@ func getProxyHistoryHandler(session *mcp.ClientSession) func(context.Context, *m
 			count = 50
 		}
 
-		// Fetch entries one at a time to avoid large SSE payloads that crash
-		// the connection. Burp serializes full request+response bodies per
-		// entry, so count=N returns N * (req+resp) bytes over SSE.
-		// count=1 is small enough; count=5+ crashes the SSE transport.
-		var entries []ProxyHistorySummary
+		// Fetch entries with bounded parallelism.
+		// Burp serializes full request+response per entry, so count=1 per call
+		// avoids crashing the SSE transport (count=5+ causes SSE payload overflow).
+		type result struct {
+			idx   int
+			entry *ProxyHistorySummary
+			err   error
+		}
+		results := make(chan result, count)
+		sem := make(chan struct{}, fetchConcurrency)
+
 		for i := 0; i < count; i++ {
-			offset := input.Offset + i
+			sem <- struct{}{}
+			go func(idx int) {
+				defer func() { <-sem }()
+				offset := input.Offset + idx
 
-			args := map[string]any{
-				"count":  1,
-				"offset": offset,
-			}
-
-			raw, err := burp.CallTool(ctx, session, "get_proxy_http_history", args)
-			if err != nil {
-				// If first call fails, propagate error.
-				// If we already have entries, stop pagination gracefully.
-				if len(entries) == 0 {
-					return nil, GetProxyHistoryOutput{}, fmt.Errorf("failed to get proxy history: %w", err)
+				args := map[string]any{
+					"count":  1,
+					"offset": offset,
 				}
+
+				raw, err := client.CallTool(ctx, "get_proxy_http_history", args)
+				if err != nil {
+					results <- result{idx: idx, err: err}
+					return
+				}
+
+				raw = trimEndMarker(raw)
+				if raw == "" {
+					results <- result{idx: idx}
+					return
+				}
+
+				entry := parseSingleHistoryEntry(raw, offset+1)
+				results <- result{idx: idx, entry: entry}
+			}(i)
+		}
+
+		// Collect results in order
+		ordered := make([]*ProxyHistorySummary, count)
+		var firstErr error
+		for i := 0; i < count; i++ {
+			r := <-results
+			if r.err != nil && firstErr == nil {
+				firstErr = r.err
+			}
+			ordered[r.idx] = r.entry
+		}
+
+		// Build entries slice preserving order, stopping at first gap
+		var entries []ProxyHistorySummary
+		for _, e := range ordered {
+			if e == nil {
 				break
 			}
+			entries = append(entries, *e)
+		}
 
-			raw = trimEndMarker(raw)
-			if raw == "" {
-				break // no more entries
-			}
-
-			entry := parseSingleHistoryEntry(raw, offset+1)
-			if entry != nil {
-				entries = append(entries, *entry)
-			}
+		if len(entries) == 0 && firstErr != nil {
+			return nil, GetProxyHistoryOutput{}, fmt.Errorf("failed to get proxy history: %w", firstErr)
 		}
 
 		if entries == nil {
@@ -88,7 +119,6 @@ func getProxyHistoryHandler(session *mcp.ClientSession) func(context.Context, *m
 // parseSingleHistoryEntry parses a single proxy history entry from Burp's
 // response (JSON or wrapper format) into a lean summary.
 func parseSingleHistoryEntry(raw string, id int) *ProxyHistorySummary {
-	// Try JSON parse first (PortSwigger MCP extension format)
 	jsonEntries := burp.ParseProxyHistory(raw)
 	if len(jsonEntries) > 0 {
 		e := jsonEntries[0]
@@ -100,7 +130,6 @@ func parseSingleHistoryEntry(raw string, id int) *ProxyHistorySummary {
 		}
 	}
 
-	// Fallback: extract request/response directly
 	reqRaw, respRaw := burp.ExtractRequestResponse(raw)
 	if reqRaw == "" {
 		return nil
@@ -131,20 +160,22 @@ func parseSingleHistoryEntry(raw string, id int) *ProxyHistorySummary {
 // trimEndMarker strips the Burp pagination sentinel from raw responses.
 func trimEndMarker(raw string) string {
 	const marker = "Reached end of items"
-	if raw == marker {
+	if strings.TrimSpace(raw) == marker {
 		return ""
 	}
-	// Could be appended after a JSON entry
-	if idx := len(raw) - len(marker); idx > 0 && raw[idx:] == marker {
-		raw = raw[:idx]
+	if idx := strings.Index(raw, "\n"+marker); idx >= 0 {
+		return strings.TrimSpace(raw[:idx])
+	}
+	if strings.HasSuffix(raw, marker) {
+		return strings.TrimSpace(raw[:len(raw)-len(marker)])
 	}
 	return raw
 }
 
 // RegisterGetProxyHistoryTool registers the burp_get_proxy_history tool.
-func RegisterGetProxyHistoryTool(server *mcp.Server, session *mcp.ClientSession) {
+func RegisterGetProxyHistoryTool(server *mcp.Server, client *burp.Client) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "burp_get_proxy_history",
 		Description: `Get proxy HTTP history summaries. Returns {id, method, url, statusCode} per entry.`,
-	}, getProxyHistoryHandler(session))
+	}, getProxyHistoryHandler(client))
 }

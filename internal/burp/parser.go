@@ -341,14 +341,14 @@ type ParsedHTTPRequest struct {
 	Method  string
 	Path    string
 	Host    string
-	Headers map[string]string
+	Headers map[string][]string
 	Body    string
 }
 
 // ParseRawRequest parses a raw HTTP request string to extract method, path, host, headers, body.
 func ParseRawRequest(raw string) *ParsedHTTPRequest {
 	result := &ParsedHTTPRequest{
-		Headers: make(map[string]string),
+		Headers: make(map[string][]string),
 	}
 
 	// Normalize line endings
@@ -388,7 +388,7 @@ func ParseRawRequest(raw string) *ParsedHTTPRequest {
 		if colonIdx > 0 {
 			key := strings.TrimSpace(line[:colonIdx])
 			value := strings.TrimSpace(line[colonIdx+1:])
-			result.Headers[key] = value
+			result.Headers[key] = append(result.Headers[key], value)
 			if strings.EqualFold(key, "host") {
 				result.Host = value
 			}

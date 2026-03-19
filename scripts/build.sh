@@ -25,7 +25,7 @@ for platform in "${PLATFORMS[@]}"; do
 
   # MCP server (root Go module)
   GOOS="$GOOS" GOARCH="$GOARCH" CGO_ENABLED=0 \
-    go build -C "$ROOT" -ldflags="-s -w" \
+    go build -C "$ROOT" -ldflags="-s -w -X github.com/c0tton-fluff/burp-mcp-server/cmd.version=${VERSION}" \
     -o "${DIST}/burp-mcp-server-${suffix}" .
 
   # CLI (Python script - platform independent, copy per target for uniform install)

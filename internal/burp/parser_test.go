@@ -164,8 +164,8 @@ func TestParseRawRequest_Standard(t *testing.T) {
 	if parsed.Host != "example.com" {
 		t.Errorf("Host = %q, want example.com", parsed.Host)
 	}
-	if parsed.Headers["Accept"] != "application/json" {
-		t.Errorf("Accept = %q", parsed.Headers["Accept"])
+	if len(parsed.Headers["Accept"]) != 1 || parsed.Headers["Accept"][0] != "application/json" {
+		t.Errorf("Accept = %v", parsed.Headers["Accept"])
 	}
 }
 
@@ -177,6 +177,18 @@ func TestParseRawRequest_WithBody(t *testing.T) {
 	}
 	if parsed.Body != "{\"user\":\"admin\"}" {
 		t.Errorf("Body = %q", parsed.Body)
+	}
+}
+
+func TestParseRawRequest_DuplicateHeaders(t *testing.T) {
+	raw := "GET / HTTP/1.1\r\nHost: example.com\r\nCookie: a=1\r\nCookie: b=2\r\n\r\n"
+	parsed := ParseRawRequest(raw)
+	cookies := parsed.Headers["Cookie"]
+	if len(cookies) != 2 {
+		t.Fatalf("Cookie count = %d, want 2", len(cookies))
+	}
+	if cookies[0] != "a=1" || cookies[1] != "b=2" {
+		t.Errorf("Cookie = %v, want [a=1, b=2]", cookies)
 	}
 }
 

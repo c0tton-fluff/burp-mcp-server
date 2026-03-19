@@ -37,9 +37,22 @@ jobs:
         run: |
           ext=""
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
-          go build -ldflags="-s -w" -o "burp-mcp-server-${GOOS}-${GOARCH}${ext}" .
+          VERSION="${GITHUB_REF_NAME#v}"
+          go build -ldflags="-s -w -X github.com/c0tton-fluff/burp-mcp-server/cmd.version=${VERSION}" -o "burp-mcp-server-${GOOS}-${GOARCH}${ext}" .
 
-      - name: Upload release asset
+      - name: Copy CLI artifact
+        run: |
+          suffix="${GOOS}-${GOARCH}"
+          if [ -f "Burp-CLI/burp" ]; then
+            cp Burp-CLI/burp "burp-cli-${suffix}"
+          fi
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+
+      - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: burp-mcp-server-*
+          files: |
+            burp-mcp-server-*
+            burp-cli-*

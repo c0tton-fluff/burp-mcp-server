@@ -10,15 +10,10 @@ import (
 
 // CreateRepeaterTabInput is the input for burp_create_repeater_tab.
 type CreateRepeaterTabInput struct {
-	// Raw HTTP request
-	Raw string `json:"raw" jsonschema:"required,Raw HTTP request"`
-	// Target host
-	Host string `json:"host" jsonschema:"required,Target hostname"`
-	// Target port
-	Port int `json:"port,omitempty" jsonschema:"Target port (default based on TLS)"`
-	// Use HTTPS
-	TLS *bool `json:"tls,omitempty" jsonschema:"Use HTTPS (default true)"`
-	// Tab name
+	Raw     string `json:"raw" jsonschema:"required,Raw HTTP request"`
+	Host    string `json:"host" jsonschema:"required,Target hostname"`
+	Port    int    `json:"port,omitempty" jsonschema:"Target port (default based on TLS)"`
+	TLS     *bool  `json:"tls,omitempty" jsonschema:"Use HTTPS (default true)"`
 	TabName string `json:"tabName,omitempty" jsonschema:"Repeater tab name"`
 }
 
@@ -27,40 +22,30 @@ type CreateRepeaterTabOutput struct {
 	Message string `json:"message"`
 }
 
-func createRepeaterTabHandler(session *mcp.ClientSession) func(context.Context, *mcp.CallToolRequest, CreateRepeaterTabInput) (*mcp.CallToolResult, CreateRepeaterTabOutput, error) {
-	return func(ctx context.Context, req *mcp.CallToolRequest, input CreateRepeaterTabInput) (*mcp.CallToolResult, CreateRepeaterTabOutput, error) {
-		if input.Raw == "" {
-			return nil, CreateRepeaterTabOutput{}, fmt.Errorf("raw HTTP request is required")
+func createRepeaterTabHandler(client *burp.Client) func(context.Context, *mcp.CallToolRequest, CreateRepeaterTabInput) (*mcp.CallToolResult, CreateRepeaterTabOutput, error) {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input CreateRepeaterTabInput) (*mcp.CallToolResult, CreateRepeaterTabOutput, error) {
+		if err := validateRawRequest(input.Raw); err != nil {
+			return nil, CreateRepeaterTabOutput{}, err
 		}
 
-		useTLS := true
-		if input.TLS != nil {
-			useTLS = *input.TLS
+		t, err := resolveTarget(input.Host, input.Port, input.TLS, "")
+		if err != nil {
+			return nil, CreateRepeaterTabOutput{}, err
 		}
 
-		port := input.Port
-		if port == 0 {
-			if useTLS {
-				port = 443
-			} else {
-				port = 80
-			}
-		}
-
-		// Normalize line endings
 		rawNorm := normalizeRawRequest(input.Raw)
 
 		args := map[string]any{
 			"content":        rawNorm,
-			"targetHostname": input.Host,
-			"targetPort":     port,
-			"usesHttps":      useTLS,
+			"targetHostname": t.Host,
+			"targetPort":     t.Port,
+			"usesHttps":      t.UseTLS,
 		}
 		if input.TabName != "" {
 			args["tabName"] = input.TabName
 		}
 
-		_, err := burp.CallTool(ctx, session, "create_repeater_tab", args)
+		_, err = client.CallTool(ctx, "create_repeater_tab", args)
 		if err != nil {
 			return nil, CreateRepeaterTabOutput{}, fmt.Errorf("failed to create repeater tab: %w", err)
 		}
@@ -71,15 +56,15 @@ func createRepeaterTabHandler(session *mcp.ClientSession) func(context.Context, 
 		}
 
 		return nil, CreateRepeaterTabOutput{
-			Message: fmt.Sprintf("Created repeater tab '%s' for %s:%d", tabDesc, input.Host, port),
+			Message: fmt.Sprintf("Created repeater tab '%s' for %s:%d", tabDesc, t.Host, t.Port),
 		}, nil
 	}
 }
 
 // RegisterCreateRepeaterTabTool registers the burp_create_repeater_tab tool.
-func RegisterCreateRepeaterTabTool(server *mcp.Server, session *mcp.ClientSession) {
+func RegisterCreateRepeaterTabTool(server *mcp.Server, client *burp.Client) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "burp_create_repeater_tab",
 		Description: `Create a Repeater tab with an HTTP request. Params: raw (request), host, port, tls, tabName.`,
-	}, createRepeaterTabHandler(session))
+	}, createRepeaterTabHandler(client))
 }
