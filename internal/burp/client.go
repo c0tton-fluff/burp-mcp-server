@@ -192,7 +192,7 @@ func callToolOnce(ctx context.Context, session *mcp.ClientSession, name string, 
 	}
 	if result.IsError {
 		text := ExtractText(result)
-		return "", fmt.Errorf("Burp error: %s", text)
+		return "", fmt.Errorf("burp error: %s", text)
 	}
 	return ExtractText(result), nil
 }

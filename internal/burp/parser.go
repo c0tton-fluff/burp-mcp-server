@@ -137,10 +137,7 @@ func extractTruncatedJSON(raw string) (request, response string) {
 	notesIdx := strings.Index(remaining, notesBoundary)
 	if notesIdx < 0 {
 		// Notes boundary not found - response value may be truncated
-		respEscaped := remaining
-		if strings.HasSuffix(respEscaped, "\"}") {
-			respEscaped = respEscaped[:len(respEscaped)-2]
-		}
+		respEscaped := strings.TrimSuffix(remaining, "\"}")
 		resp := unescapeJSONString(respEscaped)
 		if resp == "<no response>" {
 			resp = ""
