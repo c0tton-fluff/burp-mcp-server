@@ -8,11 +8,14 @@
 
 # burp-mcp-server
 
-MCP server, standalone CLI, and extension orchestrator for [Burp Suite Professional](https://portswigger.net/burp). Gives AI assistants like Claude Code full access to Burp -- send requests, read proxy history, pull scanner findings, trigger BApp extension audits, stage requests in Repeater/Intruder, and run race condition attacks. All with structured JSON output, body limits, and smart header filtering.
+- MCP server, standalone CLI, and extension orchestrator for [Burp Suite Professional](https://portswigger.net/burp).
+- Gives AI assistants like Claude Code full access to Burp - send requests, read proxy history, pull scanner findings, trigger BApp extension audits, stage requests in Repeater/Intruder, and run race condition attacks.
+- All with structured JSON output, body limits, and smart header filtering.
 
 ## Why This Exists
 
-Burp's built-in MCP extension returns verbose `HttpRequestResponse{...}` blobs with no body limits, separate HTTP/1.1 and HTTP/2 tools, and 14+ tools that burn context tokens. This project replaces all of that:
+- Burp's built-in MCP extension returns verbose `HttpRequestResponse{...}` blobs with no body limits, separate HTTP/1.1 and HTTP/2 tools, and 14+ tools that burn context tokens.
+- This project replaces all of that:
 
 | Problem | Solution |
 |---------|----------|
