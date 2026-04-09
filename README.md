@@ -1,6 +1,5 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white" alt="Go">
-  <img src="https://img.shields.io/badge/Kotlin-1.9+-7F52FF?logo=kotlin&logoColor=white" alt="Kotlin">
   <img src="https://img.shields.io/badge/Python-3.6+-3776AB?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
   <a href="https://github.com/c0tton-fluff/burp-mcp-server/releases"><img src="https://img.shields.io/github/v/release/c0tton-fluff/burp-mcp-server" alt="Release"></a>
@@ -8,8 +7,8 @@
 
 # burp-mcp-server
 
-- MCP server, standalone CLI, and extension orchestrator for [Burp Suite Professional](https://portswigger.net/burp).
-- Gives AI assistants like Claude Code full access to Burp - send requests, read proxy history, pull scanner findings, trigger BApp extension audits, stage requests in Repeater/Intruder, and run race condition attacks.
+- MCP server and standalone CLI for [Burp Suite Professional](https://portswigger.net/burp).
+- Gives AI assistants like Claude Code full access to Burp - send requests, read proxy history, pull scanner findings, stage requests in Repeater/Intruder, and run race condition attacks.
 - All with structured JSON output, body limits, and smart header filtering.
 
 ## Why This Exists
@@ -382,100 +381,6 @@ burp encode hex "test"
 
 ---
 
-## Burp Bridge (Extension Orchestrator)
-
-Burp extensions (PP Scanner, Param Miner, Backslash Powered Scanner, etc.) are GUI-only -- no CLI, no API. The bridge fixes this. A Kotlin extension (`burp-bridge.jar`) runs inside Burp's JVM and exposes an HTTP API on `:9877`. The Go CLI adds a `burp ext` subcommand group that talks to it.
-
-**Key design:** We don't call individual extensions. We trigger Burp's scanner engine via `startAudit()` on a specific request -- ALL loaded extension scan checks fire automatically. Install a new BApp = automatically available.
-
-```
-Terminal  -->  burp ext scan  -->  HTTP/:9877  -->  burp-bridge.jar (Kotlin)  -->  Burp Scanner Engine
-                                                                                    |
-                                                                              All loaded BApp scan
-                                                                              checks fire automatically
-```
-
-### Install Bridge Extension
-
-**Prerequisites:** JDK 17+, Gradle (or use included wrapper)
-
-```bash
-# Build the fat JAR
-cd extension && ./gradlew shadowJar
-# Output: extension/build/libs/burp-bridge-1.0.0.jar
-
-# Install into Burp
-# Burp > Extensions > Add > select burp-bridge-1.0.0.jar
-# Verify: bridge output tab shows "Listening on :9877"
-```
-
-Or use `make install-ext` to build and copy to `~/BurpSuitePro/extensions/`.
-
-### Bridge CLI Commands
-
-```bash
-burp ext health                              # bridge liveness check
-burp ext list                                # list loaded extensions
-burp ext list --type active                  # filter by type
-burp ext scan request.txt                    # trigger audit from file
-burp ext scan --raw "POST /api/org ..."      # inline raw request
-burp ext scan request.txt --wait             # block until scan completes
-burp ext scan request.txt --wait --timeout 2m  # with timeout
-burp ext scan request.txt --config passive   # passive checks only (default: active)
-burp ext status a1b2c3d4                     # poll scan progress
-burp ext findings                            # all findings
-burp ext findings --scan a1b2c3d4            # from specific scan
-burp ext findings --ext "Prototype"          # filter by extension name
-burp ext findings --severity high            # filter by severity
-burp ext findings --json                     # JSON output (default: table)
-burp ext cancel a1b2c3d4                     # cancel running audit
-```
-
-### Example Output
-
-```
-$ burp ext list
-EXTENSION                                    LOADED  TYPE     SCAN
-Active Scan++                                yes     active   yes
-403 Bypasser                                 yes     active   yes
-JWT Editor                                   yes     active   yes
-GraphQL Raider                               yes     active   yes
-Upload Scanner                               yes     active   yes
-JWT Monitor                                  yes     passive  yes
-MCP Server                                   yes     utility  no
-PwnFox For Chromium                          yes     utility  no
----
-8 extensions, 6 with scan checks
-
-$ burp ext scan request.txt --wait
-SCAN a1b2c3d4 -- completed -- 3 findings
-
-$ burp ext findings --scan a1b2c3d4
-SEVERITY  CONFIDENCE  EXTENSION                     URL                       NAME
-high      firm        Active Scan++                 POST /api/organization    Host header injection
-medium    tentative   403 Bypasser                  GET /admin                403 bypass via path normalization
-info      tentative   JWT Editor                    POST /api/login           JWT algorithm confusion
----
-3 findings
-```
-
-### Environment Variables
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `BURP_BRIDGE_URL` | `http://127.0.0.1:9877` | Bridge extension address |
-| `BURP_BRIDGE_TIMEOUT` | `30s` | HTTP client timeout |
-
-### Ports (no conflicts)
-
-| Port | Service |
-|------|---------|
-| `:8080` | Burp proxy listener |
-| `:9876` | PortSwigger MCP extension |
-| `:9877` | burp-bridge extension |
-
----
-
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -486,9 +391,7 @@ info      tentative   JWT Editor                    POST /api/login           JW
 | Request hangs on first send | HTTP/2 timeout + fallback handles this (15s first time, cached after) |
 | Empty proxy history | Only shows browser-proxied traffic, not MCP `send_request` calls |
 | Orphaned server process | Built-in parent PID watchdog auto-terminates when Claude Code exits |
-| Bridge unreachable on 9877 | Ensure `burp-bridge.jar` is loaded in Burp Extensions tab |
 | Jython extensions not loading | Set Jython JAR path in Burp > Settings > Extensions > Python environment |
-| Scan returns 0 findings | Normal for clean targets -- all extension checks ran, nothing found |
 
 MCP logs: `~/.cache/claude-cli-nodejs/*/mcp-logs-burp/`
 
@@ -496,8 +399,6 @@ MCP logs: `~/.cache/claude-cli-nodejs/*/mcp-logs-burp/`
 
 - [Burp Suite Professional](https://portswigger.net/burp) (Community edition has limited MCP support)
 - Burp MCP Server extension from BApp Store (for MCP server features)
-- `burp-bridge.jar` loaded in Burp (for `burp ext` commands)
-- JDK 17+ and Gradle (for building the bridge extension from source)
 - Burp running before starting Claude Code or using the CLI
 
 ## License
